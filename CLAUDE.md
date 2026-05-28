@@ -6,7 +6,7 @@
 |---------|------|------|
 | 1. AnkiConnect基本機能 | `checkAnkiRunning()`, `getDeckName()`, `addNote()` | ✅ 完了 |
 | 2. OpenAI API連携 | 単語を入力 → 翻訳・例文を生成 | ✅ 完了 |
-| 3. 機能追加 | デッキ・モデル選択、重複チェック、カード方向管理、タグ自動付与 | 未着手 |
+| 3. 機能追加 | デッキ・モデル選択、重複チェック、カード方向管理、タグ自動付与 | 🔄 進行中 |
 | 4. CLIコマンド化 | cobra導入、`anki add <word>` などのコマンド実装 | ✅ 完了 |
 | 5. TUI | bubbletea導入、画面フロー実装（AIに任せる） | 未着手 |
 | 6. 配布 | GoReleaserでリリース | 未着手 |
@@ -61,6 +61,51 @@ anki add apple --lang ja-en       # カード方向指定（後で実装）
 - `addNewModel()`: AnkiConnectでカスタムモデル（Front/Front_Sentence/Back/Back_Sentence）を作成・動作確認済み
 - `IsModel()`: モデルが存在するか確認してboolを返す関数を実装
 - `generateWard(word, fromLang, toLang)`: 言語を引数で受け取り4フィールドのJSONを返すように修正
+
+### 2026-05-27
+**ユーザー:**
+- プロジェクトを `add_anki/` から `ankitango/` に移動・リネーム
+- cobra導入。`cmd/add.go`, `cmd/root.go`, `main.go` の構成に変更
+- `add` コマンド実装：`ankitango add [word] [deckName]`
+- `generateWard()` のリトライ処理を実装（JSONでなければ無限ループで再試行）
+- `addCard(fields, deckName)` にdeckNameを引数として追加
+
+### 2026-05-28 (4回目)
+**質問：** addとlistコマンドを同じファイルに書いているけど分けた方がいい？
+
+**回答：**
+- 今の規模なら分けなくて大丈夫
+- コマンドが5個以上、または1ファイルが300〜400行を超えたら分けるタイミング
+
+### 2026-05-28 (3回目)
+**質問：** 配布する時のAPIキー設定はどうなる？
+
+**回答：**
+- 環境変数をユーザーが設定する方法（シンプル）とconfigコマンドで設定する方法がある
+- 今は環境変数方式で十分。configコマンドはPhase 3で実装予定
+- `godotenv` を外して `os.Getenv()` だけにすれば、どこからでも動く
+
+### 2026-05-28 (2回目)
+**ユーザーの指示により:**
+- `go install .` でローカルにバイナリをインストール
+- `~/.zshrc` に `export PATH=$PATH:$HOME/go/bin` を追加してPATHを通した
+- `ankitango` コマンドで直接起動できるようになった
+
+### 2026-05-28
+**ユーザー:**
+- `list` コマンド実装：`ankitango list` でデッキ一覧を表示
+- `isDeck()` 関数追加：存在しないデッキ名を指定した時にエラーメッセージを表示
+- `getDeckName()` を `[]string` を返す関数に変更
+- `addCard()` のレスポンス型を `*int64` に修正、成功メッセージを追加
+- `.venv`, `.idea`, `python/` を整理・削除
+
+**Claude:**
+- 不要ファイル（`.venv`, `.idea`）を `python/` フォルダに移動
+- README.md を書き直し（Goプロジェクト用に更新）
+
+**ユーザーの指示により:**
+- git push時にAPIキー漏洩エラー（`test.py` に古いキーが残っていた）
+- `.git` を削除して `git init` からやり直す方針に決定
 
 ---
 
