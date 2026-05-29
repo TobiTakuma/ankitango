@@ -1,3 +1,5 @@
 .env
 .venv
 python/
+# Added by goreleaser init:
+dist/

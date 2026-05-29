@@ -9,15 +9,18 @@ import (
 	"io"
 	// "log"
 	"net/http"
-	"os"
 )
 
-var modelName_AddAnkiCLI = "AddAnkiCLI"
+var modelName_AddAnkiCLI = "ankitango"
 
 var addCmd = &cobra.Command{
 	Use:   "add [word] [deckName]",
 	Short: "Add word to Anki",
 	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) < 2 {
+			fmt.Println("Error: Please specify both word and deckname.")
+			return
+		}
 		word := args[0]
 		deckName := args[1]
 
@@ -33,7 +36,11 @@ var addCmd = &cobra.Command{
 		if isNote(deckName, word) {
 			return
 		}
-		addCard(generateWard(word, "English", "Japanese"), deckName)
+		fields := generateWord(word)
+		if len(fields) == 0 {
+			return
+		}
+		addCard(fields, deckName)
 	},
 }
 
@@ -135,15 +142,24 @@ func isDeck(deckList []string, deckName string) bool {
 }
 
 // generate new words
-func generateWard(word string, fromLang string, toLang string) map[string]string {
+func generateWord(word string) map[string]string {
+	cfg := loadConfig() // import config setting
+	// if apikey has not been configured, return error
+	if cfg.APIKey == "" {
+		fmt.Println("Error: No API key has been configured. \nPlease configure it using `ankitango config apikey <key>`.")
+		return map[string]string{}
+	}
+	if (cfg.FromLang == "") || (cfg.ToLang == "") {
+		fmt.Println("Error: No language has been configured. \nPlease configure it using ankitango config apikey <from> <to>`.\nExample) if you want to from english to japanese. \n`ankitango config lang English Japanese`")
+		return map[string]string{}
+	}
+	openai_apikey := cfg.APIKey
+	fromLang := cfg.FromLang
+	toLang := cfg.ToLang
+	fmt.Println("\nGenerating...")
+
 	for {
 		url := "https://api.openai.com/v1/chat/completions"
-		// err := godotenv.Load()
-		// if err != nil {
-		// 	log.Fatal("Error loading .env file")
-		// }
-
-		openai_apikey := os.Getenv("OPENAI_API_KEY")
 
 		// json structure for request
 		type Messages struct {
@@ -207,6 +223,11 @@ func generateWard(word string, fromLang string, toLang string) map[string]string
 		var openAIResp OpenAIResponse
 		json.Unmarshal(body, &openAIResp)
 
+		if len(openAIResp.Choices) == 0 {
+			fmt.Println("Error: The responce from OpenAI is incorrect.\nCheck your API key or network")
+			return map[string]string{}
+		}
+
 		// contentを取り出す
 		result := openAIResp.Choices[0].Message.Content
 
@@ -269,9 +290,8 @@ func IsModel() bool {
 		if string(models) == modelName_AddAnkiCLI {
 			return true
 		}
-		// fmt.Println(models)
 	}
-	fmt.Println("naiyoooo")
+	fmt.Println("The specified model does not exist.\nCreating a new one...")
 	return false
 }
 
@@ -304,7 +324,7 @@ func addNewModel() {
 		Version: 6,
 		Params: Params{
 			ModelName:     modelName_AddAnkiCLI,
-			InOrderFields: []string{"Front", "Front_Sentence", "Back", "Back_Sentence"},
+			InOrderFields: []string{"Front", "Front_Sentence", "Back", "Back_Sentence", "Pronunciation", "Audio", "Synonym", "Note"},
 			IsClose:       false,
 			CSS:           "",
 			CardTemplates: []CardTemplates{
@@ -353,7 +373,7 @@ func addNewModel() {
 	var ankiResp AnkiResponse       // 空の入れ物を用意
 	json.Unmarshal(body, &ankiResp) // JSONをGoのデータに流し込む
 
-	// fmt.Println("model tukuttayo")
+	fmt.Println("A new model named “ankitango” has been created.")
 }
 
 // add new card to Anki deck

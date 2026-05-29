@@ -1,54 +1,56 @@
 # ankitango
 
-CLIツールで単語を入力するだけで、翻訳と例文を自動生成してAnkiに追加できます。
+A CLI tool that automatically generates translations and example sentences using AI, then adds them to Anki.
 
-## 必要なもの
+## Requirements
 
 - [Anki](https://apps.ankiweb.net/)
-- [AnkiConnect](https://ankiweb.net/shared/info/2055492159)（Ankiのアドオン）
-- OpenAI APIキー
+- [AnkiConnect](https://ankiweb.net/shared/info/2055492159) (Anki add-on)
+- OpenAI API key
 
-## セットアップ
+## Setup
 
 ```bash
-git clone https://github.com/TobiTakuma/ankitango.git
-cd ankitango
-go install .
+go install github.com/TobiTakuma/ankitango@latest
 ```
 
-環境変数にAPIキーを設定：
+Configure your settings:
 ```bash
-export OPENAI_API_KEY=your-api-key  # ~/.zshrc に追記推奨
+ankitango config apikey <key>              # Set OpenAI API key
+ankitango config lang <fromLang> <toLang>  # Set language (e.g. English Japanese)
+ankitango config show                      # Show current settings
+
+ex)
+ankitango config apikey "sh...jGcA" # when you use it, paste all api key
+ankitango config lang English Japanese 
 ```
 
-## 使い方
+## Usage
 
-Ankiを起動した状態で実行してください。
+Make sure Anki is running before executing commands.
 
 ```bash
-# 単語をAnkiに追加
-ankitango add <word> <deckName>
 
-# 例
-ankitango add apple MyDeck
-ankitango add "look up" MyDeck   # スペースを含む場合はクォートで囲む
-
-# デッキ一覧を表示
+# List all decks
 ankitango list
 
-# 設定
-ankitango config apikey <key>          # APIキーを設定
-ankitango config lang <fromLang> <toLang>  # 言語を設定（例: English Japanese）
-ankitango config show                  # 現在の設定を表示
+# Add a word to Anki
+ankitango add <word> <deckName>
+
+# Examples
+ankitango add apple MyDeck
+ankitango add "look up" MyDeck   # Use quotes for words with spaces
+ankitango add "apple" "word list"
+
 ```
 
-## カードの形式
+## Card Format
 
-| フィールド | 内容 |
-|-----------|------|
-| Front | 英語の単語 |
-| Front_Sentence | 英語の例文 |
-| Back | 日本語の訳 |
-| Back_Sentence | 日本語の例文 |
+| Field | Content |
+|-------|---------|
+| Front | Word |
+| Front_Sentence | Example sentence |
+| Back | Translation |
+| Back_Sentence | Translated example sentence |
 
-初回実行時に `AddAnkiCLI` というカードタイプが自動で作成されます。
+A card type named `ankitango` is automatically created on first run.

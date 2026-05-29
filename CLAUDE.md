@@ -6,10 +6,19 @@
 |---------|------|------|
 | 1. AnkiConnect基本機能 | `checkAnkiRunning()`, `getDeckName()`, `addNote()` | ✅ 完了 |
 | 2. OpenAI API連携 | 単語を入力 → 翻訳・例文を生成 | ✅ 完了 |
-| 3. 機能追加 | デッキ・モデル選択、重複チェック、カード方向管理、タグ自動付与 | 🔄 進行中 |
+| 3. 機能追加 | デッキ・モデル選択、重複チェック、カード方向管理、config設定 | ✅ 完了 |
 | 4. CLIコマンド化 | cobra導入、`anki add <word>` などのコマンド実装 | ✅ 完了 |
 | 5. TUI | bubbletea導入、画面フロー実装（AIに任せる） | 未着手 |
 | 6. 配布 | GoReleaserでリリース | 未着手 |
+
+## 後でやること
+
+- `addCmd` の引数チェック：`ankitango add apple` のようにdeckNameを省略した場合のpanicを防ぐ
+- `generateWord()` の `Choices` 空チェック：APIキーが不正・ネットワークエラー時のpanicを防ぐ
+- `panic(err)` をエラーメッセージ表示に変更（現在は `checkAnkiRunning()` で弾いているので優先度低）
+- デバッグ用メッセージ `"naiyoooo"` を削除
+- 発音記号・音声データフィールドの追加（`Pronunciation`, `Audio`）
+- 複数の意味・訳語への対応（1回の実行で複数カードを生成するか検討）
 
 ---
 
@@ -34,9 +43,12 @@ cmd/
 
 ### 完成後の使い方
 ```bash
-anki add apple                    # 英→日でカード追加
-anki add apple --deck 英単語      # デッキ指定（後で実装）
-anki add apple --lang ja-en       # カード方向指定（後で実装）
+ankitango add apple MyDeck               # カード追加
+ankitango add "look up" MyDeck           # スペースを含む単語はクォートで囲む
+ankitango list                           # デッキ一覧を表示
+ankitango config apikey <key>            # APIキーを設定
+ankitango config lang <fromLang> <toLang> # 言語を設定（例: English Japanese）
+ankitango config show                    # 現在の設定を表示
 ```
 
 ---
@@ -85,6 +97,10 @@ anki add apple --lang ja-en       # カード方向指定（後で実装）
 - 変更ログと質問ログが混在していたのを修正。同日エントリを1つにまとめる形式に変更
 - `cmd/config.go` を実装：`Config` struct、`loadConfig()`、`saveConfig()`、`configCmd`・`configApiKeyCmd`・`configLangCmd`・`configShowCmd` の定義と `Run` を実装
 - `root.go` の `init()` に `configCmd` とサブコマンドを追加
+
+### 2026-05-29
+- `generateWord()` で `loadConfig()` を呼び出し、APIキー・言語設定をconfigから取得するように変更
+- 言語を変えての動作確認済み
 
 ---
 
