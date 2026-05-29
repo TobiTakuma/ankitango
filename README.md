@@ -15,11 +15,14 @@ A CLI tool that automatically generates translations and example sentences using
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TobiTakuma/ankitango/main/install.sh | sh
 ```
+If you are asked for a password, please enter the password for your device. 
 
 **Windows (x86_64)**
 ```powershell
 powershell -Command "Invoke-WebRequest -Uri https://raw.githubusercontent.com/TobiTakuma/ankitango/main/install.ps1 -OutFile install.ps1; .\install.ps1"
 ```
+
+If you are asked for a password, please enter the password for your device. 
 
 Configure your settings:
 ```bash
