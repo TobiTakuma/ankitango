@@ -19,4 +19,10 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(listCmd)
+
+	rootCmd.AddCommand(configCmd)
+
+	configCmd.AddCommand(configApiKeyCmd)
+	configCmd.AddCommand(configLangCmd)
+	configCmd.AddCommand(configShowCmd)
 }
