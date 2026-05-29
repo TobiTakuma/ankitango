@@ -9,7 +9,7 @@
 | 3. 機能追加 | デッキ・モデル選択、重複チェック、カード方向管理、config設定 | ✅ 完了 |
 | 4. CLIコマンド化 | cobra導入、`anki add <word>` などのコマンド実装 | ✅ 完了 |
 | 5. TUI | bubbletea導入、画面フロー実装（AIに任せる） | 未着手 |
-| 6. 配布 | GoReleaserでリリース | 未着手 |
+| 6. 配布 | GoReleaserでリリース | ✅ 完了 |
 
 ## 後でやること
 
@@ -83,6 +83,7 @@ ankitango config show                    # 現在の設定を表示
 - `addCard(fields, deckName)` にdeckNameを引数として追加
 
 ### 2026-05-28
+**ユーザー:**
 - `list` コマンド実装：`ankitango list` でデッキ一覧を表示
 - `isDeck()` 関数追加：存在しないデッキ名を指定した時にエラーメッセージを表示
 - `getDeckName()` を `[]string` を返す関数に変更
@@ -90,17 +91,29 @@ ankitango config show                    # 現在の設定を表示
 - `isNote()` 関数追加：generateWard前に重複チェック。`findNotes` アクションを使用
 - `godotenv` を削除し、`os.Getenv()` のみで環境変数からAPIキーを取得するように変更
 - 不要ファイル（`.venv`, `.idea`, `python/`）を整理
-- README.md を書き直し（Goプロジェクト用に更新）
-- git push時にAPIキー漏洩エラー（`test.py` に古いキーが残っていた）。`.git` を削除して `git init` からやり直し
 - `go install .` でローカルバイナリとして使えるように設定。`~/.zshrc` に `export PATH=$PATH:$HOME/go/bin` を追加
-- README.md・CLAUDE.md を更新（`go install` でのセットアップ、configコマンドを追記）
-- 変更ログと質問ログが混在していたのを修正。同日エントリを1つにまとめる形式に変更
+- git push時にAPIキー漏洩エラー（`test.py` に古いキーが残っていた）。`.git` を削除して `git init` からやり直し
 - `cmd/config.go` を実装：`Config` struct、`loadConfig()`、`saveConfig()`、`configCmd`・`configApiKeyCmd`・`configLangCmd`・`configShowCmd` の定義と `Run` を実装
 - `root.go` の `init()` に `configCmd` とサブコマンドを追加
 
+**Claude:**
+- README.md を書き直し（Goプロジェクト用に更新）
+- README.md・CLAUDE.md を更新（`go install` でのセットアップ、configコマンドを追記）
+- 変更ログと質問ログが混在していたのを修正。同日エントリを1つにまとめる形式に変更
+
 ### 2026-05-29
-- `generateWord()` で `loadConfig()` を呼び出し、APIキー・言語設定をconfigから取得するように変更
-- 言語を変えての動作確認済み
+**ユーザー:**
+- `generateWord()` で `loadConfig()` を呼び出し、APIキー・言語設定をconfigから取得するように変更。言語を変えての動作確認済み
+- エラー処理を追加：APIキー未設定、言語未設定、OpenAI応答が空の場合、引数不足
+- `InOrderFields` に `Pronunciation`, `Audio`, `Synonym`, `Note` を追加
+- `.github/workflows/release.yml` を作成し GitHub Actions を設定
+- `install.sh`（Mac/Linux用）・`install.ps1`（Windows用）インストールスクリプトを作成
+- v1.0.0 をリリース
+- v1.0.1　をリリース
+
+**Claude:**
+- README.md をインストールスクリプトの手順を含む英語版に書き直し
+- CLAUDE.md の変更ログ・計画表・質問ログを更新
 
 ---
 
@@ -115,6 +128,65 @@ ankitango config show                    # 現在の設定を表示
 ---
 
 ## 質問ログ
+
+### 2026-05-29
+**質問：** `add.go` で `config.go` の `loadConfig` を呼び出すにはどうすればいい？
+
+**回答：**
+- 同じ `package cmd` に属しているのでそのまま `loadConfig()` と書くだけ
+- `import` も不要
+
+### 2026-05-29
+**質問：** エラー処理で `return` を書くと「not enough return values」と言われる
+
+**回答：**
+- `generateWord()` の戻り値が `map[string]string` なのでエラー時にも何か返す必要がある
+- `return map[string]string{}` で空のmapを返す
+
+### 2026-05-29
+**質問：** 空のmapを返した時に2つエラーが出てしまう
+
+**回答：**
+- `generateWord()` が空のmapを返した後、そのまま `addCard()` が呼ばれているため
+- `addCmd` の `Run` 内で `if len(fields) == 0 { return }` のチェックを追加する
+
+### 2026-05-29
+**質問：** 複数の意味がある単語はどう扱う？
+
+**回答：**
+- 今の実装はAIが毎回1つの訳を選んで生成する
+- 同じ単語を何度も追加すれば自然と複数の意味がカードになる
+- 1回の実行で複数カード生成する方法もあるが後回しでOK（後でやるリストに追加済み）
+
+### 2026-05-29
+**質問：** 新しいバージョンをリリースしたあと古いバージョンは自動更新される？
+
+**回答：**
+- 自動更新はされない。ユーザーが手動で更新する必要がある
+- `go install github.com/TobiTakuma/ankitango@latest` を再実行するか、GitHubリリースページから新バイナリをダウンロード
+
+### 2026-05-29
+**質問：** GoReleaserのGitHub Personal Access Tokenとは何？
+
+**回答：**
+- GitHubが本人であることを確認するためのパスワードのようなもの
+- GitHub CLIで `gh auth login` 済みであれば `GITHUB_TOKEN` の設定は不要
+- `gh auth status` で確認できる
+
+### 2026-05-29
+**質問：** `.goreleaser.yaml` と `.github/workflows/release.yml` は別物？
+
+**回答：**
+- `.goreleaser.yaml` → GoReleaserの設定ファイル（どのOS向けにビルドするかなど）
+- `.github/workflows/release.yml` → GitHub Actionsのワークフロー（タグをpushしたときに自動でGoReleaserを実行する設定）
+- 両方必要
+
+### 2026-05-29
+**質問：** インストールスクリプトでJSONファイルも作られる？
+
+**回答：**
+- スクリプトはバイナリのインストールのみ
+- `~/.config/ankitango/config.json` は `ankitango config apikey` を初めて実行したときに自動で作られる
 
 ### 2026-05-28
 **質問：** JSONファイルはどこで作られるの？

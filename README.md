@@ -10,8 +10,15 @@ A CLI tool that automatically generates translations and example sentences using
 
 ## Setup
 
+**Using go install**
+**macOS / Linux**
 ```bash
-go install github.com/TobiTakuma/ankitango@latest
+curl -fsSL https://raw.githubusercontent.com/TobiTakuma/ankitango/main/install.sh | sh
+```
+
+**Windows (x86_64)**
+```powershell
+powershell -Command "Invoke-WebRequest -Uri https://raw.githubusercontent.com/TobiTakuma/ankitango/main/install.ps1 -OutFile install.ps1; .\install.ps1"
 ```
 
 Configure your settings:
