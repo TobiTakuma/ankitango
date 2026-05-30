@@ -445,7 +445,7 @@ func addCard(fields map[string]string, deckName string) {
 		fmt.Println("Error: ", *ankiResp.Error)
 		return
 	}
-	fmt.Println("Succsess!")
+	fmt.Println("Success!")
 }
 
 func getDeckName() []string {
