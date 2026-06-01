@@ -30,7 +30,17 @@ Success!
 curl -fsSL https://raw.githubusercontent.com/TobiTakuma/ankitango/main/install.sh | sh
 ```
 
-If you are asked for a password, please enter the password for your device.
+If you are asked for a password, please enter the password for your device.  
+If /usr/local/bin does not exist, you will need to create it.
+```bash
+sudo mkdir /usr/local/bin
+
+# or
+
+mkdir /usr/local
+cd /usr/local
+mkdir bin
+```
 
 
 **Windows (x86_64)**

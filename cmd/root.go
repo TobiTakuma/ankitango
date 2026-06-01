@@ -18,10 +18,11 @@ func Execute() {
 // connect addCmd to root command
 func init() {
 	rootCmd.AddCommand(addCmd)
+	addCmd.Flags().StringP("file", "f", "", "words file(.txt/.csv)")
+
 	rootCmd.AddCommand(listCmd)
 
 	rootCmd.AddCommand(configCmd)
-
 	configCmd.AddCommand(configApiKeyCmd)
 	configCmd.AddCommand(configLangCmd)
 	configCmd.AddCommand(configShowCmd)

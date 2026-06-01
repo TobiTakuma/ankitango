@@ -2,54 +2,84 @@
 
 ## 完成までの計画
 
+基本機能・配布は一通り動く状態だが、今後も追加機能を実装していくため**プロジェクト自体は未完成**（継続開発中）。
+
 | フェーズ | 内容 | 状態 |
 |---------|------|------|
 | 1. AnkiConnect基本機能 | `checkAnkiRunning()`, `getDeckName()`, `addNote()` | ✅ 完了 |
 | 2. OpenAI API連携 | 単語を入力 → 翻訳・例文を生成 | ✅ 完了 |
 | 3. 機能追加 | デッキ・モデル選択、重複チェック、カード方向管理、config設定 | ✅ 完了 |
-| 4. CLIコマンド化 | cobra導入、`anki add <word>` などのコマンド実装 | ✅ 完了 |
-| 5. TUI | bubbletea導入、画面フロー実装（AIに任せる） | 未着手 |
-| 6. 配布 | GoReleaserでリリース | ✅ 完了 |
+| 4. CLIコマンド化 | cobra導入、`ankitango add <word>` などのコマンド実装 | ✅ 完了 |
+| 5. 配布 | GoReleaserでリリース、install.sh / install.ps1 作成 | ✅ 完了 |
+| 6. ファイル一括取り込み | `add -f <file>` で `.txt`/`.csv` から複数単語を追加 | ✅ 完了 |
+| 7. TUI | bubbletea導入、画面フロー実装（AIに任せる） | 未着手 |
+| 8. 追加機能（継続） | 自動判別・複数訳対応・発音/音声フィールド・他LLM対応など | 🚧 検討/実装中 |
 
 ## 後でやること
 
-- `addCmd` の引数チェック：`ankitango add apple` のようにdeckNameを省略した場合のpanicを防ぐ
-- `generateWord()` の `Choices` 空チェック：APIキーが不正・ネットワークエラー時のpanicを防ぐ
-- `panic(err)` をエラーメッセージ表示に変更（現在は `checkAnkiRunning()` で弾いているので優先度低）
-- デバッグ用メッセージ `"naiyoooo"` を削除
-- 発音記号・音声データフィールドの追加（`Pronunciation`, `Audio`）
+- `panic(err)` をエラーメッセージ表示に変更（複数取り込みのループ中に1回の通信失敗で全体が死ぬのを防ぐ。`continue` でスキップする方向）
+- 発音記号・音声データフィールドの追加（`Pronunciation`, `Audio` フィールドは存在するがAIが生成していない。生成内容に含める）
 - 複数の意味・訳語への対応（1回の実行で複数カードを生成するか検討）
+- 拡張子での自動判別（`-f` なしで `add words.txt MyDeck` と打ったら、args[0] が `.txt`/`.csv` なら自動でファイル扱いにする）：現状は `-f` フラグ必須。優先度低
+- 他LLM対応（Claude / Gemini）：`LLMClient` interface で共通化する案あり
 
 ---
 
-## CLIコマンド化の手順（cobra）
+## プロジェクト構成・セットアップ・使い方
 
-### 全体像
+### 全体像（現在の構成）
 ```
-main.go        ← エントリーポイント。cmd.Execute() を呼ぶだけ
+main.go              ← エントリーポイント。cmd.Execute() を呼ぶだけ
 cmd/
-  root.go      ← ルートコマンド（anki）の定義
-  add.go       ← add サブコマンドの定義。ここから generateWard → addCard を呼ぶ
+  root.go            ← ルートコマンド（ankitango）の定義。init() で各コマンド・フラグを登録
+  add.go             ← add / list コマンド。AnkiConnect・OpenAI関連の関数群もここ
+                        （addCmd, listCmd, generateWord, addCard, isNote, isDeck,
+                         readWord, IsModel, addNewModel, getDeckName, checkAnkiRunning）
+  config.go          ← config コマンド（apikey / lang / show）と loadConfig / saveConfig
+sample/              ← テスト用 .txt / .csv（.gitignore 済み、コミットしない）
+install.sh           ← Mac/Linux 用インストールスクリプト
+install.ps1          ← Windows 用インストールスクリプト
+.goreleaser.yaml     ← GoReleaser 設定
+.github/workflows/release.yml ← タグpushで自動リリース
 ```
+- モジュール名: `github.com/TobiTakuma/ankitango`
+- 設定ファイル: `~/.config/ankitango/config.json`（APIキー・言語）
+- 自作Ankiモデル名: `ankitango`（初回実行時に自動作成）
 
-今 `main.go` にある関数（`generateWard`, `addCard` など）はそのままで、`main()` の中身だけ `cmd/add.go` に移す。
-
-### 手順
-1. `go get github.com/spf13/cobra` でインストール
-2. `cmd/` フォルダを作成
-3. `cmd/root.go` を作成（ルートコマンドの定義）
-4. `cmd/add.go` を作成（add サブコマンド。今の main() の処理をここに移す）
-5. `main.go` を `cmd.Execute()` だけに書き直す
-
-### 完成後の使い方
+### セットアップ手順（インストール）
+**macOS / Linux**（curl でインストール）
 ```bash
-ankitango add apple MyDeck               # カード追加
-ankitango add "look up" MyDeck           # スペースを含む単語はクォートで囲む
-ankitango list                           # デッキ一覧を表示
-ankitango config apikey <key>            # APIキーを設定
-ankitango config lang <fromLang> <toLang> # 言語を設定（例: English Japanese）
-ankitango config show                    # 現在の設定を表示
+curl -fsSL https://raw.githubusercontent.com/TobiTakuma/ankitango/main/install.sh | sh
 ```
+**Windows**（コマンドからインストール）
+```powershell
+powershell -Command "Invoke-WebRequest -Uri https://raw.githubusercontent.com/TobiTakuma/ankitango/main/install.ps1 -OutFile install.ps1; .\install.ps1"
+```
+**Go環境がある場合**
+```bash
+go install github.com/TobiTakuma/ankitango@latest
+```
+インストール後に設定:
+```bash
+ankitango config apikey <key>             # APIキーを設定
+ankitango config lang English Japanese    # 言語を設定（from to）
+ankitango config show                     # 現在の設定を表示
+```
+※ Anki を起動し、AnkiConnect アドオンを入れておくこと。
+
+### 使い方（現在）
+```bash
+ankitango add apple MyDeck                # 単語1個を追加
+ankitango add "look up" "My Deck"         # スペースを含む単語/デッキはクォートで囲む
+ankitango add -f sample/words.txt MyDeck  # .txt から複数単語を一括追加（1行1単語）
+ankitango add -f sample/words.csv MyDeck  # .csv から一括追加（1セル1単語、列数バラバラOK）
+ankitango list                            # デッキ一覧を表示
+ankitango config apikey <key>             # APIキーを設定
+ankitango config lang <fromLang> <toLang> # 言語を設定（例: English Japanese）
+ankitango config show                     # 現在の設定を表示
+```
+- `-f`（`--file`）は string型フラグなので「`-f <ファイル名>`」と値をセットで渡す
+- ファイル取り込み時、重複・生成失敗の単語は `continue` でスキップし残りを処理する
 
 ---
 
@@ -115,6 +145,24 @@ ankitango config show                    # 現在の設定を表示
 - README.md をインストールスクリプトの手順を含む英語版に書き直し
 - CLAUDE.md の変更ログ・計画表・質問ログを更新
 
+### 2026-05-31
+**ユーザー:**
+- `add` コマンドで `.txt`/`.csv` ファイルから複数単語を一括取り込む機能を実装・完成
+- `root.go` の `init()` に `addCmd.Flags().StringP("file", "f", "", ...)` を追加（`-f` フラグ登録）
+- `add.go` の `Run` を書き換え：`filePath` の有無でファイルモード/単語モードに分岐し、`wordsArray` をループ処理。失敗時は `return` でなく `continue` でスキップ
+- `add.go` の `Use` を `add [words] [deckName]` に変更
+- `readWord(path)` 実装：`os.Open` → 拡張子で分岐（`.csv` は `encoding/csv`、`.txt` は `bufio.Scanner`）→ `strings.TrimSpace` で空行スキップ → `[]string` を返す
+- CSV読み込みで `reader.FieldsPerRecord = -1` を設定し、行ごとにセル数がバラバラでも読めるように
+- 引数チェック追加：ファイルモードは `len(args) < 1`、単語モードは `len(args) < 2`（panic防止）
+- `sample/` を作成し `words.txt`/`words.csv` をテスト用に追加。`.gitignore` に `sample/` を追加
+- デバッグ用出力・エラーメッセージの文言を整理（ファイルモードは「deckname のみ」に修正）
+
+**Claude:**
+- ファイル取り込み機能の設計・各コードの意味を説明（実装はユーザー本人が担当）
+- `sample/` ディレクトリとテスト用 `.txt`/`.csv` を作成、`.gitignore` に追加
+- `go build` / `go vet` で全体の動作を確認（全パターンOK）
+- CLAUDE.md を全面更新：計画表（継続開発中に変更・ファイル取り込みフェーズ追加）、後でやること（完了分を削除）、構成/セットアップ/使い方を現状に合わせて書き直し
+
 ---
 
 ## 実装のポイント（学んだこと）
@@ -128,6 +176,101 @@ ankitango config show                    # 現在の設定を表示
 ---
 
 ## 質問ログ
+
+### 2026-05-31
+**質問：** CSV読み込みで `Error: failed to read CSV: record on line 2: wrong number of fields` が出た。意味は？
+
+**回答：**
+- 「2行目のセル数が他と違う」というエラー。`encoding/csv` は「全行が同じセル数のはず」という前提を持つ（表データ想定）
+- `ReadAll()` は1行目のセル数を基準にし、以降の行が違うとエラーにする。テストCSVは行ごとにセル数がバラバラ（3,2,1）だったため2行目で発生
+- 今回は「単語を並べるだけ」で行ごとにセル数が違うのが自然なので、列数チェックを無効化する
+- 解決：`reader := csv.NewReader(file)` の直後に `reader.FieldsPerRecord = -1` を足す（`-1` = チェックしない）。これでバラバラな行数でも読める → 動作確認OK
+
+### 2026-05-31
+**質問：** ファイル取り込み実行中に `panic: Post "http://127.0.0.1:8765": EOF`（`isNote` の `http.Post` 失敗で panic）が出た。原因は？
+
+**回答：**
+- コードのバグではなく一時的な通信の途切れ（AnkiConnectがその1回だけ応答せず接続が切れた）。`EOF` = 返事が来る前に接続が閉じられた、の意味
+- 10回ほど再試行したが再現しなかったため、原因は連続リクエストの一過性の不調と判断。対応は後回しにする
+- ただし `isNote` 等が通信失敗で `panic` する作りなので、複数単語をループ処理中に1回失敗すると残り全部が巻き添えで止まる弱点がある（「後でやること」の panic→エラー表示対応がこれにあたる）。複数取り込みを仕上げた後に、panic をやめて `continue` でスキップする方向にする
+
+### 2026-05-31
+**質問：** `ankitango add [words] [deckName] [flags]` の意味は？
+
+**回答：**
+- cobra が自動生成する使い方の見本。`[words]`=単語/ファイル、`[deckName]`=デッキ名、`[flags]`=フラグを置ける印
+- `[ ]` はプレースホルダ。`[words] [deckName]` は `add.go` の `Use` に書いた文字列がそのまま表示されている。`[flags]` は cobra が自動で足す
+- `[flags]` が末尾なのは表示上の慣習で、値とセットなら前でも後ろでも置ける
+
+### 2026-05-31
+**質問：** `-f` を付けたら `flag needs an argument: 'f'` が出た。フラグは `add -f` みたいに付けるのでは？
+
+**回答：**
+- `-f`(`--file`)は string型フラグなので「`-f` の直後に値（ファイル名）」がセットで必要。`-f` を値なしで末尾に置いたのが原因
+- 正しくは `add -f sample/words.txt MyDeck`
+- bool型フラグ（`-h` など）は値不要で単独でOK。string型は値必須、という違い
+
+### 2026-05-31
+**質問：** args の数で分岐したい。3ならフラグあり/2なら単語/それ以外エラー、で行ける？
+
+**回答：**
+- フラグ（`-f 値`）は `args` に数えられない（cobra が解析して取り除く）。`add -f words.txt MyDeck` の `len(args)` は1
+- なので「3ならフラグあり」では判定できない。フラグの有無は `filePath != ""` で見る
+- 設計：A) `filePath != ""`→ファイルモード（deckName=args[0]、words=readWord）/ B) 空→args 2個必要（deckName=args[1]）、さらに args[0] の拡張子が .txt/.csv なら自動でファイル扱い、違えば単語1個
+- ループ内の失敗は `return` でなく `continue`
+
+### 2026-05-31
+**質問：** addコマンドに.txtや.csvも取り込めるようにしたい。どうやる？
+
+**回答：**
+- 今の「1単語処理」を「ファイルなら中身を単語リストにして1個ずつ処理」に拡張するだけ
+- `-f` フラグ方式と拡張子での自動判別方式の両方に対応する方針
+- 標準ライブラリだけで可能：`bufio`（txt 1行ずつ）、`encoding/csv`（CSV解析）、`path/filepath`（拡張子判定）、`os`、`strings`
+- 流れ：フラグ取得 → ファイルなら `readWord()` で `[]string` に → `for` で `isNote`→`generateWord`→`addCard`。失敗時は `return` でなく `continue`
+
+### 2026-05-31
+**質問：** 単語と「.txt/.csv」を自動判別する方式は曖昧と言ったけどどういうこと？
+
+**回答：**
+- 文字列の見た目（拡張子）だけで判断するので、まれに意図と食い違うという意味
+- ただしこのアプリは語彙を登録する用途なので `.txt`/`.csv` で終わる単語はまず来ない＝実害はほぼない
+- フラグ方式（`-f`）は合図が明確で確実。CLIの作法としても一般的
+
+### 2026-05-31
+**質問：** ファイル指定は普通 `-f` でやるもの？
+
+**回答：**
+- はい、一般的。CLIでは「主役の対象＝引数」「入力方法の切り替え＝フラグ」と分ける慣習
+- 例：`kubectl apply -f file.yaml`、`git commit -F msg.txt`、`grep -f patterns.txt`
+- 例外は `cat file.txt` のようにファイル自体が主役のツール
+- ankitango は「単語登録」が主役でファイルは補助なので `-f` が筋が通る
+
+### 2026-05-31
+**質問：** `addCmd.Flags().StringP("file", "f", "", "...")` の意味は？
+
+**回答：**
+- addコマンドに文字列フラグ `--file`(短縮形 `-f`)を登録する
+- 引数：長い名前 / 短縮形 / デフォルト値 / 説明文
+- `StringP` の `P` は「短縮形あり」。`String` だと `--file` のみ
+- 値は `cmd.Flags().GetString("file")` で取り出す
+
+### 2026-05-31
+**質問：** `filePath, _ := cmd.Flags().GetString("file")` は何をしている？
+
+**回答：**
+- 登録済みの `--file`(`-f`)フラグに渡された値を取り出して `filePath` に入れている
+- `-f words.txt` なら `"words.txt"`、付けなければ `""`（デフォルト値）
+- `_` は2つ目の戻り値（フラグ未登録時のエラー）を捨てている
+- 後で `if filePath != ""` でファイル指定の有無を判定できる
+
+### 2026-05-31
+**質問：** `os.Open` した後 `file` には何が入っている？
+
+**回答：**
+- 中身そのものではなく「ファイルを操作するための取っ手（ハンドル、`*os.File`）」
+- 開いた時点では中身は未読込。`bufio`/`csv` に渡して初めて読み出す
+- 読むたびに「今ここまで読んだ」位置が進む。だから for で次々読める
+- ポインタなのは、読み手が読み進めると元の `file` の位置も一緒に動く必要があるため
 
 ### 2026-05-29
 **質問：** 新しいバージョンをリリースしたらもう一度インストールコマンドを打てばいい？

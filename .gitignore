@@ -1,5 +1,6 @@
 .env
 .venv
 python/
+sample/
 # Added by goreleaser init:
 dist/

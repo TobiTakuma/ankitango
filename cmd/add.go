@@ -1,28 +1,48 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	// "github.com/joho/godotenv"
-	"github.com/spf13/cobra"
 	"io"
-	// "log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 var modelName_AddAnkiCLI = "ankitango"
 
 var addCmd = &cobra.Command{
-	Use:   "add [word] [deckName]",
+	Use:   "add [words] [deckName]",
 	Short: "Add word to Anki",
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) < 2 {
-			fmt.Println("Error: Please specify both word and deckname.")
-			return
+		filePath, _ := cmd.Flags().GetString("file")
+
+		var wordsArray []string
+		var deckName string
+
+		if filePath != "" {
+			if len(args) < 1 {
+				fmt.Println("Error: Please specify the deckname.")
+				return
+			}
+			wordsArray = readWord(filePath)
+			deckName = args[0]
+
+		} else {
+			if len(args) < 2 {
+				fmt.Println("Error: Please specify both word and deckname.")
+				return
+			}
+			wordsArray = []string{args[0]}
+			deckName = args[1]
+
 		}
-		word := args[0]
-		deckName := args[1]
 
 		if !checkAnkiRunning() {
 			return
@@ -33,14 +53,21 @@ var addCmd = &cobra.Command{
 		if !IsModel() {
 			addNewModel()
 		}
-		if isNote(deckName, word) {
-			return
+
+		for i := 0; i < len(wordsArray); i++ {
+			word := wordsArray[i]
+
+			if isNote(deckName, word) {
+				continue
+				// return
+			}
+			fields := generateWord(wordsArray[i])
+			if len(fields) == 0 {
+				continue
+				//return
+			}
+			addCard(fields, deckName)
 		}
-		fields := generateWord(word)
-		if len(fields) == 0 {
-			return
-		}
-		addCard(fields, deckName)
 	},
 }
 
@@ -54,6 +81,58 @@ var listCmd = &cobra.Command{
 
 		printList(getDeckName())
 	},
+}
+
+// help function
+
+// bufio
+// encoding/csv
+// path/filepath
+// os
+func readWord(path string) []string {
+	file, err := os.Open(path)
+	if err != nil {
+		fmt.Println("Error: could not open file: ", path)
+		return []string{}
+	}
+	defer file.Close()
+
+	var words []string
+
+	if filepath.Ext(path) == ".csv" {
+		// CSV
+		reader := csv.NewReader(file)
+		reader.FieldsPerRecord = -1
+		records, err := reader.ReadAll() //[][]string
+		if err != nil {
+			fmt.Println("Error: failed to read CSV: ", err)
+			return []string{}
+		}
+		for _, record := range records {
+			for _, cell := range record {
+				w := strings.TrimSpace(cell)
+				if w != "" {
+					words = append(words, w)
+				}
+			}
+		}
+
+	} else if filepath.Ext(path) == ".txt" {
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" {
+				words = append(words, line)
+			}
+		}
+
+	} else {
+		fmt.Println("Error: not support this file path")
+		return []string{}
+	}
+
+	return words
+
 }
 
 func isNote(deckName string, word string) bool {
