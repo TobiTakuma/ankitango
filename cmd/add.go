@@ -5,16 +5,19 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
+var ErrConnection = errors.New("couldn't connect to Anki")
 var modelName_AddAnkiCLI = "ankitango"
 
 var addCmd = &cobra.Command{
@@ -41,7 +44,6 @@ var addCmd = &cobra.Command{
 			}
 			wordsArray = []string{args[0]}
 			deckName = args[1]
-
 		}
 
 		if !checkAnkiRunning() {
@@ -54,10 +56,17 @@ var addCmd = &cobra.Command{
 			addNewModel()
 		}
 
+		var failedWords []string
 		for i := 0; i < len(wordsArray); i++ {
 			word := wordsArray[i]
 
-			if isNote(deckName, word) {
+			exists, err := isNote(deckName, word)
+			if err != nil {
+				fmt.Println("Connection failed isNote ->", word)
+				failedWords = append(failedWords, word)
+				continue
+			}
+			if exists {
 				continue
 				// return
 			}
@@ -66,7 +75,22 @@ var addCmd = &cobra.Command{
 				continue
 				//return
 			}
-			addCard(fields, deckName)
+			if err := addCard(fields, deckName); err != nil {
+				if errors.Is(err, ErrConnection) {
+					fmt.Println("Connection failed addCard ->", word)
+					failedWords = append(failedWords, word)
+				} else {
+					fmt.Println("Skipped ->", word, ":", err)
+				}
+
+				continue
+			}
+		}
+
+		if len(failedWords) != 0 {
+			dir := filepath.Dir(filePath)
+			outPath := filepath.Join(dir, "fail.txt")
+			fail(failedWords, outPath)
 		}
 	},
 }
@@ -85,10 +109,50 @@ var listCmd = &cobra.Command{
 
 // help function
 
-// bufio
-// encoding/csv
-// path/filepath
-// os
+func fail(failedWords []string, path string) {
+	file, err := os.Create(path)
+	if err != nil {
+		fmt.Println("Error: could not create fail.txt: ", err)
+	}
+	defer file.Close()
+
+	for _, w := range failedWords {
+		fmt.Fprintln(file, w)
+	}
+
+	fmt.Println("failed words were saved to ", path)
+}
+
+func ankiInvoke(req any) ([]byte, error) {
+	url := "http://127.0.0.1:8765"
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		panic(err)
+	}
+
+	var resp *http.Response
+	for i := 0; i < 3; i++ {
+		// send request to localhost
+		r, err := http.Post(
+			url,                       // where
+			"application/json",        // which data type(json)
+			bytes.NewBuffer(jsonData), // what data
+		)
+		if err == nil {
+			resp = r
+			break
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("couldn't connect")
+	}
+
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
 func readWord(path string) []string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -135,8 +199,7 @@ func readWord(path string) []string {
 
 }
 
-func isNote(deckName string, word string) bool {
-	url := "http://127.0.0.1:8765"
+func isNote(deckName string, word string) (bool, error) {
 	// 1 make request structure
 	type Params struct {
 		Query string `json:"query"`
@@ -157,28 +220,10 @@ func isNote(deckName string, word string) bool {
 		},
 	}
 
-	// 3 convert to JSON. Marshal(変換)
-	jsonData, err := json.Marshal(req)
+	body, err := ankiInvoke(req)
 	if err != nil {
-		panic(err)
-	}
-
-	// 4 send request to localhost
-	resp, err := http.Post(
-		url,                       // where
-		"application/json",        // which data type(json)
-		bytes.NewBuffer(jsonData), // what data
-	)
-	// if Anki isn't run it return error
-	if err != nil {
-		panic(err)
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		panic(err)
+		return true, err
+		// panic(err)
 	}
 
 	type AnkiResponse struct {
@@ -189,17 +234,11 @@ func isNote(deckName string, word string) bool {
 	var ankiResp AnkiResponse       // 空の入れ物を用意
 	json.Unmarshal(body, &ankiResp) // JSONをGoのデータに流し込む
 
-	// if body == nil {
-	// 	fmt.Println("sonoka-do aruyo")
-	// 	return false
-	// }
-	// return true
-
 	if len(ankiResp.Result) > 0 {
 		fmt.Println("Error: already exists →", word)
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func printList(list []string) {
@@ -321,7 +360,6 @@ func generateWord(word string) map[string]string {
 
 // check if the model exists
 func IsModel() bool {
-	url := "http://127.0.0.1:8765"
 	// 1 make request structure
 	type AnkiRequest struct {
 		Action  string `json:"action"`
@@ -333,26 +371,7 @@ func IsModel() bool {
 		Version: 6,
 	}
 
-	// 3 convert to JSON. Marshal(変換)
-	jsonData, err := json.Marshal(req)
-	if err != nil {
-		panic(err)
-	}
-
-	// 4 send request to localhost
-	resp, err := http.Post(
-		url,                       // where
-		"application/json",        // which data type(json)
-		bytes.NewBuffer(jsonData), // what data
-	)
-	// if Anki isn't run it return error
-	if err != nil {
-		panic(err)
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := ankiInvoke(req)
 	if err != nil {
 		panic(err)
 	}
@@ -377,7 +396,6 @@ func IsModel() bool {
 // add new model
 // before run this function, user needs check "AddAnkiCLI" is not available
 func addNewModel() {
-	url := "http://127.0.0.1:8765"
 	// 1 make json structure
 	type CardTemplates struct {
 		Name  string `json:"Name"`
@@ -421,25 +439,7 @@ func addNewModel() {
 		},
 	}
 
-	jsonData, err := json.Marshal(req)
-	if err != nil {
-		panic(err)
-	}
-
-	// 4 send request to localhost
-	resp, err := http.Post(
-		url,                       // where
-		"application/json",        // which data type(json)
-		bytes.NewBuffer(jsonData), // what data
-	)
-	// if Anki isn't run it return error
-	if err != nil {
-		panic(err)
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := ankiInvoke(req)
 	if err != nil {
 		panic(err)
 	}
@@ -456,14 +456,18 @@ func addNewModel() {
 }
 
 // add new card to Anki deck
-func addCard(fields map[string]string, deckName string) {
-	url := "http://127.0.0.1:8765"
+func addCard(fields map[string]string, deckName string) error {
 
 	// 1 making json structure in to out
+	type Options struct {
+		AllowDuplicate bool   `json:"allowDuplicate"`
+		DuplicateScope string `json:"duplicateScope"`
+	}
 	type Note struct {
 		DeckName  string            `json:"deckName"`
 		ModelName string            `json:"modelName"`
 		Fields    map[string]string `json:"fields"`
+		Options   Options           `json:"options"`
 	}
 
 	type Params struct {
@@ -484,31 +488,17 @@ func addCard(fields map[string]string, deckName string) {
 				DeckName:  deckName,
 				ModelName: modelName_AddAnkiCLI,
 				Fields:    fields,
+				Options: Options{
+					AllowDuplicate: false,
+					DuplicateScope: "deck",
+				},
 			},
 		},
 	}
 
-	jsonData, err := json.Marshal(req)
+	body, err := ankiInvoke(req)
 	if err != nil {
-		panic(err)
-	}
-
-	// 4 send request to localhost
-	resp, err := http.Post(
-		url,                       // where
-		"application/json",        // which data type(json)
-		bytes.NewBuffer(jsonData), // what data
-	)
-	// if Anki isn't run it return error
-	if err != nil {
-		panic(err)
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		panic(err)
+		return err
 	}
 
 	type AnkiResponse struct {
@@ -521,14 +511,13 @@ func addCard(fields map[string]string, deckName string) {
 
 	// say error or success
 	if ankiResp.Error != nil {
-		fmt.Println("Error: ", *ankiResp.Error)
-		return
+		return fmt.Errorf("Error: %s", *ankiResp.Error)
 	}
 	fmt.Println("Success!")
+	return nil
 }
 
 func getDeckName() []string {
-	url := "http://127.0.0.1:8765"
 	// 1 make request structure
 	type AnkiRequest struct {
 		Action  string `json:"action"`
@@ -540,26 +529,7 @@ func getDeckName() []string {
 		Version: 6,
 	}
 
-	// 3 convert to JSON. Marshal(変換)
-	jsonData, err := json.Marshal(req)
-	if err != nil {
-		panic(err)
-	}
-
-	// 4 send request to localhost
-	resp, err := http.Post(
-		url,                       // where
-		"application/json",        // which data type(json)
-		bytes.NewBuffer(jsonData), // what data
-	)
-	// if Anki isn't run it return error
-	if err != nil {
-		panic(err)
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := ankiInvoke(req)
 	if err != nil {
 		panic(err)
 	}
@@ -572,9 +542,6 @@ func getDeckName() []string {
 	var ankiResp AnkiResponse       // 空の入れ物を用意
 	json.Unmarshal(body, &ankiResp) // JSONをGoのデータに流し込む
 
-	// for _, deck := range ankiResp.Result {
-	// 	fmt.Println(deck)
-	// }
 	return ankiResp.Result
 }
 

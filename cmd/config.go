@@ -11,6 +11,8 @@ type Config struct {
 	APIKey   string `json:"api_key"`
 	FromLang string `json:"fromlang"`
 	ToLang   string `json:"tolang"`
+	BaseURL  string `json:"base_url"`
+	Model    string `json:"model"`
 }
 
 var home, _ = os.UserHomeDir()

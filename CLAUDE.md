@@ -17,7 +17,10 @@
 
 ## 後でやること
 
-- `panic(err)` をエラーメッセージ表示に変更（複数取り込みのループ中に1回の通信失敗で全体が死ぬのを防ぐ。`continue` でスキップする方向）
+- **【接続切れ対策】残タスク**（2026-06-04時点。コア機能は完成済み）
+  - `generateWord`（OpenAI側）の `panic` をリトライ＋エラー返しに（Anki側と別対応。429レート制限はこちらで起きうる）。生成失敗の単語も `failedWords` に記録するか合わせて検討
+  - `getDeckName` / `IsModel` / `addNewModel` の `panic` をエラー表示に（ループ外で1回だけ呼ばれるので優先度低）
+- `panic(err)` をエラーメッセージ表示に変更（接続切れ対策で `ankiInvoke`＋`addCard`＋`isNote` は対応済み。`getDeckName` / `IsModel` / `addNewModel` / `generateWord` はまだ `panic` のまま）
 - 発音記号・音声データフィールドの追加（`Pronunciation`, `Audio` フィールドは存在するがAIが生成していない。生成内容に含める）
 - 複数の意味・訳語への対応（1回の実行で複数カードを生成するか検討）
 - 拡張子での自動判別（`-f` なしで `add words.txt MyDeck` と打ったら、args[0] が `.txt`/`.csv` なら自動でファイル扱いにする）：現状は `-f` フラグ必須。優先度低
@@ -163,6 +166,37 @@ ankitango config show                     # 現在の設定を表示
 - `go build` / `go vet` で全体の動作を確認（全パターンOK）
 - CLAUDE.md を全面更新：計画表（継続開発中に変更・ファイル取り込みフェーズ追加）、後でやること（完了分を削除）、構成/セットアップ/使い方を現状に合わせて書き直し
 
+### 2026-06-04（連続リクエスト時の接続切れ対策・コア機能完成）
+**ユーザー:**
+- 連続リクエスト中に一瞬Ankiとの接続が切れて全体が死ぬ問題を解決
+- `ankiInvoke(req any) ([]byte, error)` 共通関数を作成：`json.Marshal` → `http.Post` を最大3回リトライ（`for i := 0; i < 3`、失敗時 `time.Sleep(500ms)`）→ 成功で `resp` に代入し `break` → 3回ダメなら `resp == nil` で `error` を返す → body を返す
+- AnkiConnect系の5関数（`isNote` / `IsModel` / `addNewModel` / `addCard` / `getDeckName`）を `ankiInvoke(req)` 呼び出しに置き換え（重複していたMarshal→POST処理を共通化）
+- `checkAnkiRunning` は門番なので直接 `http.Post` のまま残す（リトライ不要、即「未起動」判定したいため）
+- `addCard` を `error` を返す形に変更（接続失敗→`return err`、Anki側拒否→`fmt.Errorf("anki error: %s", ...)`、成功→`return nil`）
+- `isNote` を `(bool, error)` を返す形に変更（接続失敗を握りつぶさず、ループ側で `failedWords` に記録できるように）
+- `Run` のループで `failedWords []string` をローカルに用意し、`isNote`/`addCard` 失敗時に `append` して `continue`（失敗単語の収集）。エラー表示も関数内でなくループ側に集約し、単語付きで1箇所表示に統一
+- `fail(words []string, path string)` を実装：`os.Create(path)` でファイルを作り（上書き方式）、`fmt.Fprintln` で1行1単語ずつ書き出す
+- `fail.txt` の保存先を入力ファイルと同じフォルダに：`filepath.Dir(filePath)` + `filepath.Join(..., "fail.txt")`。ファイルモード（`filePath != ""`）かつ失敗があるときだけ書き出す
+- 動作確認：途中でAnkiを終了させても panic せず最後まで回り、失敗単語が `fail.txt` に1行1単語で記録されることを確認（`-f` で再投入可能な形式）
+
+**Claude:**
+- 原因の見立てを説明：レート制限ではなくGoのHTTP keep-alive接続の使い回しが原因（後述の実装ポイント参照）。リトライが効く理由・`DisableKeepAlives` という別解も提示
+- リトライの書き方、`resp` のスコープ問題、`ankiInvoke` 共通化の意味、`error` 戻り値の設計、`(bool, error)` の片方を `_` で捨てる書き方、失敗単語をどこで持つか（グローバルでなくループ内ローカル）、`fail` のファイル書き込み（`os.Create`/`fmt.Fprintln`）、`filepath.Dir`/`filepath.Join` での保存先指定を段階的に説明（実装はユーザー本人）
+- レアなEOFの再現を待つより「わざと失敗を注入してコードの通り道を全部踏む」検証方法を提案（Anki終了・ポート変更）
+- エラー表記の整理（typo・単語抜け・表記揺れ）は「関数内でprintせずループ側1箇所に集約」で根本解決、`fail.txt` に見出し行を混ぜない注意を説明
+- `go build` / `go vet` で確認。残課題（`generateWord` のpanic等）を「後でやること」に反映
+
+### 2026-06-04（重複検知スコープの修正・案B採用）
+**ユーザー:**
+- 別デッキからエクスポートした単語を新デッキに取り込む際、一部の単語が `isNote` をすり抜けて `addCard` で重複エラーになる問題に対応
+- **案B採用**：`addCard`（addNote）に `options` を追加し `duplicateScope: "deck"` を指定。重複チェックを「コレクション全体」から「ターゲットデッキ内のみ」に変更（`Note` struct に `Options{ AllowDuplicate, DuplicateScope }` を追加）→ 他デッキに同じ単語があってもターゲットデッキに無ければ追加できるように
+- エラー表示を改善：接続失敗（再挑戦すべき）と Anki側拒否＝重複（再挑戦しても無駄）を区別。`ankiInvoke` の接続失敗を sentinel error `ErrConnection`（`errors.New`）で返し、ループ側で `errors.Is(err, ErrConnection)` で判定。接続失敗のみ `fail.txt` に記録、重複は表示だけでスキップ（`fail.txt` に恒久的に失敗するゴミが溜まるのを防ぐ）
+
+**Claude:**
+- isNote通過→addCard重複の原因を説明：①Ankiの重複判定は同じノートタイプ内のみ（デッキAの元カードは別の型なので ankitango の追加を邪魔しない＝大半が成功する理由）②`isNote` はデッキ絞り込み・addNote はコレクション全体とスコープがズレていた ③`isNote` は入力した生の単語で検索するが、実際に保存される Front は AI が変換した語（例：「I'm curious about」→「curious」）なので、AIが語を変えると事前チェックがすり抜ける
+- 案A（isNoteを全体検索に）と案B（addNoteをデッキ単位に）を提示。移行が目的なら案Bを推奨
+- sentinel error + `errors.Is` による失敗種別の区別方法を説明
+
 ---
 
 ## 実装のポイント（学んだこと）
@@ -172,10 +206,130 @@ ankitango config show                     # 現在の設定を表示
 - `http.Post(url, "application/json", bytes.NewBuffer(jsonData))` の形で送る
 - `resp.Body` は必ず `defer resp.Body.Close()` で閉じる
 - AnkiConnectのレスポンスは `{"result": ..., "error": ...}` の形
+- 連続リクエストで出る `Post EOF` の正体：Goは一度開いたTCP接続を次のリクエストで使い回す（HTTP keep-alive）。AnkiConnect側が先にアイドル接続を閉じると、Goが「死んだ接続」を再利用した瞬間に `EOF` になる。単発では起きず連続実行で確率が上がるタイミング依存の競合状態。レート制限（クールタイム）ではない。対策はリトライ（新しい接続を開き直すので直る）＋必要なら `&http.Transport{DisableKeepAlives: true}` で使い回し自体を止める
+- 失敗の2種類を区別する：`http.Post` の `err`（通信失敗・EOF）はリトライで直る／レスポンスの `ankiResp.Error != nil`（重複・デッキ無しなど）は何度送っても同じなのでリトライせず即失敗扱い
+- 失敗単語の集計はグローバル変数でなく `Run` のループ内ローカル `[]string` に持つ（「どの単語か」と「成否」を同時に知るのはループだけ。リセット不要・隠れた状態を避けられる。ファイル書き込みはループ後に1回だけ）
+- `fmt.Errorf`/`Printf` は値を埋めるのに `%s` などの穴が必要（`Println` は穴なしで値を並べられる、の違い）
+- Ankiの重複判定は**同じノートタイプ（モデル）の中だけ**で行われる。ankitango は専用モデル `ankitango` を使うので、他の型（Basic等）の同じ単語は重複扱いされない。AnkiConnect `addNote` の重複スコープは `options.duplicateScope` で制御：デフォルトはコレクション全体、`"deck"` を指定するとターゲットデッキ内のみ（`options` は `note` オブジェクトの中に置く）
+- `isNote`（事前チェック）の盲点：検索は**入力した生の単語**で行うが、実際にカードへ保存される `Front` は **AIが変換した後の語**。両者がズレると（フレーズ→単語など）事前チェックをすり抜け、addNote 側で本物の重複として弾かれる
+- 失敗を「再挑戦すべき（接続失敗）」と「再挑戦しても無駄（重複・拒否）」で分ける。sentinel error（`var ErrConnection = errors.New(...)`）を返し、呼び出し側で `errors.Is(err, ErrConnection)` で判定するのがGoの定番。前者だけ `fail.txt` に記録する
 
 ---
 
 ## 質問ログ
+
+### 2026-06-04
+**質問：** `isNote` では検知されないが `addCard` で重複エラーになる単語がある。特定のデッキでだけ起き、他のデッキでは検知される。なぜ？
+
+**回答：**
+- `isNote` はデッキ絞り込み検索（`deck:"X" Front:"word"`）、addNote はデフォルトでコレクション全体の重複チェック、とスコープがズレているのが原因
+- その単語は別のデッキに存在する → isNote（デッキX限定）は見逃す → addNote（全体）が捕まえる、という流れ
+- 直すには両方のスコープを揃える。案A（isNoteを全体検索に）か案B（addNoteをデッキ単位に）
+
+### 2026-06-04
+**質問：** 全単語が別デッキに存在するはずなのに、大半は重複問題が起きないのはなぜ？
+
+**回答：**
+- Ankiの重複判定は**同じノートタイプの中だけ**。デッキAの元カードは別の型（Basic等）なので、ankitango 型の追加では無視される＝大半が普通に追加できる
+- 失敗する少数は、**過去のテストで ankitango 型として作った分**が他デッキ（テスト用）に残っているもの。isNote（ターゲットデッキ限定）は見逃し、addNote（ankitango型を全デッキ）が捕まえる
+- 「全単語がAnki内にある」は本当だが、大半は別の型なので ankitango の重複チェックに引っかからない
+
+### 2026-06-04
+**質問：** 案B（duplicateScope: deck）にしたら1単語だけ失敗。「I'm curious about」→Front「curious」で `Connection failed` と出る。なぜ？
+
+**回答：**
+- まず表示が嘘：ループが addCard の失敗を理由を問わず「Connection failed」と決め打ち表示していた。本当の `err` を出すと重複エラーだった
+- 本物の重複：入力「I'm curious about」をAIが「curious」に変換、その「curious」が既に WordHunt にあった＝正しく弾かれた（バグではない）
+- isNoteが見逃した理由：isNoteは入力「I'm curious about」で検索、実際に保存される Front は「curious」でズレるため。AIが語を変えると事前チェックはすり抜ける
+- 仕上げ：接続失敗（fail.txt行き）と重複（表示のみ）を `errors.Is(err, ErrConnection)` で区別する
+
+### 2026-06-04
+**質問：** `fail.txt` が今いるディレクトリに作られてしまう。読み込んだテキストファイルと同じ場所に置ける？
+
+**回答：**
+- できる。`filepath.Dir(filePath)` で入力ファイルのフォルダを取り出し、`filepath.Join(dir, "fail.txt")` で保存先パスを作って `fail` に渡す（`os.Create(path)`）
+- `sample/test.txt` を読み込めば `sample/fail.txt` に出る。`filepath.Join` は `/` を自分で書かず、Windowsでも正しく動く
+- 注意：単語モード（`filePath == ""`）だと `filepath.Dir("")` は `.`（カレント）になる。1単語の失敗のためにファイルを作るのは大げさなので、`filePath != ""`（ファイルモード）かつ失敗があるときだけ `fail` を呼ぶのがきれい
+
+### 2026-06-04
+**質問：** `fail` 関数の中身（ファイル書き込み）の作り方は？
+
+**回答：**
+- 「失敗単語の `[]string` を受け取って1行ずつファイルに書く」だけの関数にする
+- 道具：`os.Create(path)`（なければ作成・あれば上書き。`readWord` の `os.Open`=読む の対）／`fmt.Fprintln(file, w)`（`Println` のファイル版。改行も自動）／`defer file.Close()`
+- 上書き（`os.Create`）がおすすめ：`add -f fail.txt` で再挑戦するたびに、まだ失敗する単語だけが残り自然にリストが減る。追記だと重複が溜まる
+- 呼び出しはループの後に `if len(failedWords) > 0 { fail(failedWords, path) }`（全成功時に空ファイルを作らない）
+- 「failed words」などの見出しは画面表示だけにし、ファイルには1行1単語の純粋なリストのみ（`-f` 再投入時に見出しが単語として登録されるのを防ぐ）
+
+### 2026-06-04
+**質問：** `isNote` が `(bool, error)` を返すようになった。boolだけ／errorだけ取り出すには？
+
+**回答：**
+- Goは戻り値が2つなら受け取る変数も2つ必要。片方だけ書くとコンパイルエラー
+- 両方使う：`exists, err := isNote(...)` ／ bool だけ：`exists, _ := isNote(...)` ／ error だけ：`_, err := isNote(...)`（`_` は「使わないので捨てる」記号。使わない変数を許さないGoの作法）
+- ただし `isNote` を `(bool, error)` にした目的は接続失敗を握りつぶさないこと。捨てずに「error を先に確認 → 問題なければ bool を見る」が定番の流れ
+
+### 2026-06-04
+**質問：** 連続リクエストで途中で接続が切れて全部無に帰す問題を、①panicをやめてリトライ→クールタイムの有無を調べる ②エラーでも3回試す ③3回失敗した単語を.txt/.csvに記録、の流れで実装しようと思うが問題点は？
+
+**回答：**
+- 原因の見立てが違う可能性大：`Post EOF` はレート制限（クールタイム）ではなくGoのHTTP keep-alive接続の使い回しが原因（実装ポイント参照）。「何回まで送れるか測る」調査は空振りの公算。逆にリトライは新しい接続を開き直すのでこの原因にドンピシャで効く
+- リトライ対象を区別：通信エラー（`err`）はリトライ／レスポンスの `Error`（重複など）は即失敗
+- 戻り値の設計変更が必要：今の `addCard` は何も返さないので、ループ側で成否を判定するには `error` を返す形に
+- 共通化のチャンス：同じPOST処理が6関数にコピペされている。`ankiInvoke` 1つにまとめてリトライをそこに書けば修正は1箇所で済む
+- 失敗ファイルは `-f` で再投入できる形（1行1単語）にし、追記で。リトライ前に少し待つ（バックオフ）
+
+### 2026-06-04
+**質問：** 原因と思われるkeep-alive接続の使い回しについて詳しく教えて
+
+**回答：**
+- HTTP/1.1は接続を毎回開くと遅いので、一度開いたTCP接続を次のリクエストで使い回す（keep-alive）。Goの `http.Post` はデフォルトでこれをやる（接続プール）
+- 接続を閉じる判断はサーバーとクライアントが別々に持つ。AnkiConnectが先に閉じた接続をGoが「まだ使える」と思って再利用 → 返事が来る前に切れていて `EOF`
+- 単発実行では使い回す機会がなく起きない、連続実行で確率が上がる（タイミング依存の競合状態）。「10回試しても再現しない」のもこれで説明がつく
+- 対策A：EOFが出たらリトライ（新接続が開かれ直る）／対策B：`DisableKeepAlives: true` で使い回し自体を止める。実用上は両方入れると堅牢
+
+### 2026-06-04
+**質問：** リトライってどう書く？（やさしめに）
+
+**回答：**
+- 「失敗したらもう一回やる」だけ。`for i := 0; i < 3` で最大3回、成功したら `break`/`return` で抜ける。抜けなければ次の回＝もう一回試す
+- リトライ前に `time.Sleep(500 * time.Millisecond)` で少し待つと成功率が上がる
+- 上限を決めて無限ループを防ぐ。3回ダメなら諦めて失敗記録へ
+- 通信エラー（`err`）だけリトライ、Anki側の拒否（`ankiResp.Error`）はリトライせず即終了、と2種類の失敗を分けるのがコツ
+
+### 2026-06-04
+**質問：** 全関数にリトライを書くのは面倒。HTTPリクエストを送る関数を作ってそこで統一するってこと？（Invokeにまとめる意味）
+
+**回答：**
+- その通り。6関数で共通なのは「JSON化→POST→リトライ→body読む」、違うのは action名・params・レスポンスの型だけ
+- 共通部分を `ankiInvoke(req any) ([]byte, error)` にまとめ、リトライはその中に1回だけ書く。各関数は `req` を作って渡し、返ってきた body を自分用の型に `Unmarshal` するだけ
+- レスポンスの `Result` の型は関数ごとに違う（`[]string`/`[]int64`/`*int64`）ので、読み取りは各関数に残す（共通化しすぎるとジェネリクスの話になる）
+- リトライ回数を変えたい時は `ankiInvoke` 1箇所だけ直せば全関数に反映（DRY原則。「レジ係1人」のイメージ）
+- 進め方：`ankiInvoke` を作る→まず `addCard` 1つで動作確認→残りを1つずつ置き換え
+
+### 2026-06-04
+**質問：** `resp` をループ内で `:=` で作ったら、ループの外の `resp.Body.Close()` でエラーになる。なぜ？
+
+**回答：**
+- Goでは `{ }` の中で `:=` で作った変数はその中でしか使えない。`for` を抜けると `resp` は消えるので `undefined: resp` になる
+- 直し方：`var resp *http.Response` をループの外で宣言し、成功時に `resp = r` で外の箱に入れる。さらに3回失敗時のため `if resp == nil { return }` を足す（nilのまま `resp.Body.Close()` すると今度こそpanic）
+
+### 2026-06-04
+**質問：** `fail` 関数の準備中。失敗単語をどこから取る？ 全体変数で持つのと各関数から取るのとどっちがいい？
+
+**回答：**
+- どちらでもなく `Run` のループ内ローカル `[]string` がベスト。グローバルは「いつ空にするか」問題・隠れた状態で避ける。各関数に持たせると役割が増えて複雑
+- 「どの単語か」と「成否」を同時に知るのはループだけ。失敗時に `failedWords = append(...)` で集め、ループ後に1回だけファイルへ書く
+- `fail` は `[]string` を受け取ってファイルに書くだけの関数にする
+
+### 2026-06-04
+**質問：** `addCard` をエラーを返すようにしたい。返り値は何にする？
+
+**回答：**
+- `error` 一つでOK。成功は `return nil`、失敗は `return エラー`
+- `addCard` には失敗が2か所：① `ankiInvoke` の `err` → そのまま `return err` で横流し ② `ankiResp.Error != nil`（Anki側拒否）→ `fmt.Errorf("anki error: %s", *ankiResp.Error)` で包んで返す
+- 渡したいデータは無く成否だけ知りたいので `error` 1つで十分。呼び出し側は `if err := addCard(...); err != nil { ... }` で受ける
+- `isNote` は今 `bool` なので、エラーも返すなら `(bool, error)` 化を検討（addCardの後で）
 
 ### 2026-05-31
 **質問：** CSV読み込みで `Error: failed to read CSV: record on line 2: wrong number of fields` が出た。意味は？

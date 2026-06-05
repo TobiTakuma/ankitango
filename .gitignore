@@ -4,3 +4,4 @@ python/
 sample/
 # Added by goreleaser init:
 dist/
+AGENTS.md
