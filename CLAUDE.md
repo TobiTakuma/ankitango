@@ -24,7 +24,11 @@
 - 発音記号・音声データフィールドの追加（`Pronunciation`, `Audio` フィールドは存在するがAIが生成していない。生成内容に含める）
 - 複数の意味・訳語への対応（1回の実行で複数カードを生成するか検討）
 - 拡張子での自動判別（`-f` なしで `add words.txt MyDeck` と打ったら、args[0] が `.txt`/`.csv` なら自動でファイル扱いにする）：現状は `-f` フラグ必須。優先度低
-- 他LLM対応（Claude / Gemini）：`LLMClient` interface で共通化する案あり
+- 他LLM対応：OpenAI / Gemini は **OpenAI互換エンドポイント方式**で対応完了（2026-06-05）。残り：
+  - ローカルモデル（Ollama/LM Studio等）：プリセットに1行足すだけで可能だが「あとでやる」。`generateWord` の「APIキー空ならエラー」チェックに引っかかるので、ダミーキー（`config apikey local ...`）かチェック緩和が必要
+  - Claude：`providers` マップに `claude` 行を足すだけで対応可（互換エンドポイント）
+  - 必要なら「プロバイダごとにキー保存」（切り替えのたびにキー再入力が面倒になったら）
+  - `generateWord` 末尾の DEBUG 出力（`fmt.Println("DEBUG ...")`）を消したか確認
 
 ---
 
@@ -197,6 +201,23 @@ ankitango config show                     # 現在の設定を表示
 - 案A（isNoteを全体検索に）と案B（addNoteをデッキ単位に）を提示。移行が目的なら案Bを推奨
 - sentinel error + `errors.Is` による失敗種別の区別方法を説明
 
+### 2026-06-05（複数LLM対応・OpenAI / Gemini）
+**ユーザー:**
+- OpenAI に加え Gemji（と将来ローカルモデル）に対応。LiteLLM は Python製/プロキシ常駐が必要で単一バイナリCLIに不向きと判断し、**OpenAI互換エンドポイント方式**を採用（送信コード・JSON構造はそのまま、baseURL・model・key だけ差し替え）
+- config.go：`Config` に `BaseURL`（`json:"base_url"`）/ `Model`（`json:"model"`）を追加。`Provider{ BaseURL, Model }` 型と `providers` プリセットマップ（`openai` / `gemini`）を定義
+- `config apikey` コマンドを `[provider] [key] [model]` 形式に変更：プリセットから baseURL/model を自動セット＋キー保存。未知のプロバイダは `range` で一覧表示。第3引数でモデルを上書き可能にし、**モデルが変わっても再ビルド不要**に
+- add.go：`generateWord` の直書き url / `Model: "gpt-4o-mini"` を `cfg.BaseURL` / `cfg.Model` に差し替え（空ならOpenAIをデフォルトにフォールバック）。JSON入出力・`OpenAIRequest` 構造体は変更不要（互換なので同じ形）
+- gemini プリセットのデフォルトモデルを `gemini-2.0-flash` → `gemini-2.5-flash` に変更（2.0-flash は当該アカウントで無料枠 `limit: 0` だったため）
+- 動作確認：OpenAI（デフォルト）OK、Gemini（gemini-2.5-flash）OK
+
+**Claude:**
+- LiteLLM が Go/単一バイナリに不向きな理由と、OpenAI互換エンドポイント（OpenAI/Gemini/ローカルすべて同形式・Bearer認証）で代替できることを説明
+- 「一番シンプルな方法＝ baseURL/model/key の3つだけ変える」設計、プリセットマップで持つ拡張性（1行追加で新プロバイダ）、番号より名前推奨を提案
+- `:-`（→`:=`）のtypo、comma-okイディオム、map を `range` で回す書き方、`Config` にフィールド未追加によるエラーを指摘
+- 429 RESOURCE_EXHAUSTED の `limit: 0` は「使い切った」でなく「そのモデルの無料枠が元々ゼロ」と説明。コードは正常でアカウント側の問題と切り分け、別モデル/課金/キー確認を提案
+- モデル名を引数で上書き可能にして再ビルド不要にする設計を提案
+- README.md を更新：Requirements（OpenAI/Gemini）、`config apikey <provider> <key> [model]` の書き方とGemini例・モデル上書き例、`add -f` でのファイル一括取り込みの使い方と `fail.txt` の説明を追記。さらに「Supported LLMs」セクションを追加（対応プロバイダ表・デフォルトモデル・キー取得先・モデル上書き・不明プロバイダ実行で一覧表示）を将来追加前提で記載
+
 ---
 
 ## 実装のポイント（学んだこと）
@@ -213,10 +234,72 @@ ankitango config show                     # 現在の設定を表示
 - Ankiの重複判定は**同じノートタイプ（モデル）の中だけ**で行われる。ankitango は専用モデル `ankitango` を使うので、他の型（Basic等）の同じ単語は重複扱いされない。AnkiConnect `addNote` の重複スコープは `options.duplicateScope` で制御：デフォルトはコレクション全体、`"deck"` を指定するとターゲットデッキ内のみ（`options` は `note` オブジェクトの中に置く）
 - `isNote`（事前チェック）の盲点：検索は**入力した生の単語**で行うが、実際にカードへ保存される `Front` は **AIが変換した後の語**。両者がズレると（フレーズ→単語など）事前チェックをすり抜け、addNote 側で本物の重複として弾かれる
 - 失敗を「再挑戦すべき（接続失敗）」と「再挑戦しても無駄（重複・拒否）」で分ける。sentinel error（`var ErrConnection = errors.New(...)`）を返し、呼び出し側で `errors.Is(err, ErrConnection)` で判定するのがGoの定番。前者だけ `fail.txt` に記録する
+- 複数LLM対応は **OpenAI互換エンドポイント**が単一バイナリCLIに最適。OpenAI・Gemini・ローカル（Ollama/LM Studio等）はどれも `/chat/completions` に `Authorization: Bearer KEY` で OpenAI形式のJSONを送れる。違うのは baseURL・model・key の3つだけ＝送信コードを流用できる。LiteLLM は Python製/プロキシ常駐が必要で配布に不向き
+  - Gemini互換: `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`／Claude互換: `https://api.anthropic.com/v1/chat/completions`（URLは変わりうるので要確認）
+  - `response_format: json_object` は互換先で効かないことがあるが、`generateWord` の「JSONになるまで再試行」ループが吸収する
+- 設定は `map[string]Provider` のプリセットで持つと新プロバイダ追加が1行で済む。よく変わるモデル名はコマンド引数で上書き可能にしておくと**再ビルド不要**で対応できる（baseURL はほぼ変わらないのでコード直書きで十分）
+- Gemini の無料枠は**モデルごとに違う**。`429 RESOURCE_EXHAUSTED` の `limit: 0` は「使い切った」ではなく「そのモデルの無料枠が元々ゼロ」の意味（例: gemini-2.0-flash が limit:0 でも gemini-2.5-flash は使えた）。コードでなくアカウント/モデル側の問題
+- Goの map は整数添字で取り出せない（`m[0]` 不可）。一覧は `for k := range m {}` で回す。`v, ok := m[key]` の comma-ok でキー存在を確認
 
 ---
 
 ## 質問ログ
+
+### 2026-06-05
+**質問：** Gemini なども対応させたい。どうすればいい？
+
+**回答：**
+- 共通の窓口（interface）か、もっとシンプルには **OpenAI互換エンドポイント**を使う方法がある
+- LLMごとに違うのは baseURL・APIキーの渡し方・リクエスト/レスポンスのJSON構造。共通なのはプロンプトと最終的な4フィールド変換
+- 互換エンドポイントなら送るJSONが同じなので、baseURL・model・key を差し替えるだけで対応できる
+
+### 2026-06-05
+**質問：** LiteLLM が便利と聞いたが使えない？
+
+**回答：**
+- LiteLLM は Python のライブラリ/プロキシ。Goから直接は使えず、プロキシ常駐は単一バイナリ配布のCLIに不向き（ユーザーに別サーバーを要求してしまう）
+- 同じ「1つの書き方で複数LLM」効果は **OpenAI互換エンドポイント**でサーバー無しに実現できる（OpenAI/Gemini/ローカルすべて対応）
+
+### 2026-06-05
+**質問：** 一番シンプルに OpenAI・Gemini（＋後でローカル）に対応するには？
+
+**回答：**
+- 全部 OpenAI形式・Bearer認証で叩けるので、プロバイダ分岐すら不要。`Config` に `BaseURL` / `Model` を足し、`generateWord` の直書き url/model をそれに差し替えるだけ
+- 切り替えは baseURL・model・key の3つを設定するだけ。送信コードもリクエストJSONも流用
+
+### 2026-06-05
+**質問：** APIキーを入れる時に、どのモデルを使うかも同時に選ぶ方がいいのでは？（番号割り当てで `apikey 1 sk...` のように）
+
+**回答：**
+- 良い案。むしろ前案（URL直打ち）よりシンプル。プリセット表 `map[string]Provider` を持ち、`apikey [provider] [key]` で baseURL/model を自動セット＋キー保存にする
+- 番号より名前（`openai`/`gemini`）推奨：自己説明的で、拡張時も表に1行足すだけ
+
+### 2026-06-05
+**質問：** `p, ok :- providers[...]` の `p` の所のエラーの意味は？
+
+**回答：**
+- `:-` は存在しない演算子。`:=`（宣言＋代入）のtypo。`p, ok := providers[args[0]]` が正しい（comma-okイディオム：`ok` はキーが存在すれば true）
+- 同ブロックの一覧表示も map を整数で回せないので `for name := range providers {}` に直す
+
+### 2026-06-05
+**質問：** 71・72行目（`cfg.BaseURL` / `cfg.Model`）のエラーは？
+
+**回答：**
+- `Config` 構造体に `BaseURL` / `Model` フィールドをまだ追加していないため（`type Config has no field`）。手順①の2項目追加が抜けていた
+
+### 2026-06-05
+**質問：** url と model を add.go に反映するだけでいい？ JSONの書き方も変える必要ある？
+
+**回答：**
+- JSONは変更不要。`Config` にタグ付きフィールドを足したので `json.Marshal`/`Unmarshal` が自動で処理する（config.json に項目が自動で増える）
+- 変えるのは `generateWord` の url と Model だけ。送るリクエストJSON（`OpenAIRequest`）も互換なのでそのまま
+
+### 2026-06-05
+**質問：** Gemini で `429` `limit: 0` が出た。これは？ また使えなくなったらコードを書き換えないといけない？
+
+**回答：**
+- `429 RESOURCE_EXHAUSTED` + `limit: 0` は「使い切った」ではなく「そのモデル（gemini-2.0-flash）の無料枠が元々ゼロ」。コードは正常（互換連携は成功）。別モデル（gemini-2.5-flash で解決）・課金有効化・キー確認で対応
+- モデルが変わるたびにコードを書き換えたくないので、`apikey` の第3引数でモデルを上書き可能にしておく → 再ビルド不要でコマンドだけで変更できる
 
 ### 2026-06-04
 **質問：** `isNote` では検知されないが `addCard` で重複エラーになる単語がある。特定のデッキでだけ起き、他のデッキでは検知される。なぜ？

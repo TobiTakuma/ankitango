@@ -264,12 +264,21 @@ func generateWord(word string) map[string]string {
 	cfg := loadConfig() // import config setting
 	// if apikey has not been configured, return error
 	if cfg.APIKey == "" {
-		fmt.Println("Error: No API key has been configured. \nPlease configure it using `ankitango config apikey <key>`.")
+		fmt.Println("Error: No API key has been configured. \nPlease configure it using `ankitango config apikey <provider> <key>`.")
 		return map[string]string{}
 	}
 	if (cfg.FromLang == "") || (cfg.ToLang == "") {
 		fmt.Println("Error: No language has been configured. \nPlease configure it using ankitango config apikey <from> <to>`.\nExample) if you want to from english to japanese. \n`ankitango config lang English Japanese`")
 		return map[string]string{}
+	}
+	baseURL := cfg.BaseURL
+	// for people who used previous versions
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1/chat/completions"
+	}
+	model := cfg.Model
+	if model == "" {
+		model = "gpt-4o-mini"
 	}
 	openai_apikey := cfg.APIKey
 	fromLang := cfg.FromLang
@@ -277,7 +286,7 @@ func generateWord(word string) map[string]string {
 	fmt.Println("\nGenerating...")
 
 	for {
-		url := "https://api.openai.com/v1/chat/completions"
+		url := baseURL
 
 		// json structure for request
 		type Messages struct {
@@ -315,7 +324,7 @@ func generateWord(word string) map[string]string {
 		)
 
 		opai_req := OpenAIRequest{
-			Model: "gpt-4o-mini",
+			Model: model,
 			Messages: []Messages{
 				{Role: "system", Content: content},
 				{Role: "user", Content: word},
@@ -342,7 +351,7 @@ func generateWord(word string) map[string]string {
 		json.Unmarshal(body, &openAIResp)
 
 		if len(openAIResp.Choices) == 0 {
-			fmt.Println("Error: The responce from OpenAI is incorrect.\nCheck your API key or network")
+			fmt.Println("Error: The responce from LLM is incorrect.\nCheck your API key or network")
 			return map[string]string{}
 		}
 

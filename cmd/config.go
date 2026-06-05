@@ -11,9 +11,18 @@ type Config struct {
 	APIKey   string `json:"api_key"`
 	FromLang string `json:"fromlang"`
 	ToLang   string `json:"tolang"`
-	BaseURL  string `json:"base_url"`
-	Model    string `json:"model"`
+	BaseURL  string `json:"base_url"` // ← 追加
+	Model    string `json:"model"`    // ← 追加
 }
+
+type Provider struct {
+	BaseURL string
+	Model   string
+}
+
+var providers = map[string]Provider{
+	"openai": {"https://api.openai.com/v1/chat/completions", "gpt-4o-mini"},
+	"gemini": {"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "gemini-2.5-flash"}}
 
 var home, _ = os.UserHomeDir()
 var configPATH = home + "/.config/ankitango/config.json"
@@ -41,18 +50,33 @@ var configCmd = &cobra.Command{
 }
 
 var configApiKeyCmd = &cobra.Command{
-	Use:   "apikey [key]",
+	Use:   "apikey [provider] [key] [model]",
 	Short: "Save the api key",
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) < 1 {
-			fmt.Println("Error: specify API Key")
+		if len(args) < 2 {
+			fmt.Println("Error: specify provider and key (Ex: ankitango apikey openai sk-...)")
 			return
 		}
 
-		cfg := loadConfig()  // read current setting
-		cfg.APIKey = args[0] // Override API key
+		p, ok := providers[args[0]]
+		if !ok {
+			fmt.Println("Error: unknown provider: ", args[0])
+			fmt.Println("\nProvider List")
+			for name := range providers {
+				fmt.Println(name)
+			}
+			return
+		}
+
+		cfg := loadConfig() // read current setting
+		cfg.BaseURL = p.BaseURL
+		cfg.Model = p.Model
+		if len(args) >= 3 {
+			cfg.Model = args[2]
+		}
+		cfg.APIKey = args[1] // Override API key
 		saveConfig(cfg)
-		fmt.Println("APIKey saved!")
+		fmt.Printf("Provider: %s, key saved!\n", args[0])
 	},
 }
 
@@ -60,7 +84,7 @@ var configLangCmd = &cobra.Command{
 	Use:   "lang [fromLang][toLang]",
 	Short: "Save the langage settings",
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) < 1 {
+		if len(args) < 2 {
 			fmt.Println("Error: specify language")
 			return
 		}
@@ -80,9 +104,12 @@ var configShowCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := loadConfig()
 		key := cfg.APIKey
+		model := cfg.Model
 		if len(key) > 10 {
 			key = key[:3] + "..." + key[len(key)-4:]
 		}
+
+		fmt.Println("LLM Model: " + model)
 		fmt.Println("APIkey: " + key)
 		langConfig := fmt.Sprintf(`Lang: "%s" to "%s"`, cfg.FromLang, cfg.ToLang)
 		fmt.Println(langConfig)
