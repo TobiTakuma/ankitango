@@ -259,6 +259,36 @@ func isDeck(deckList []string, deckName string) bool {
 	return false
 }
 
+// generateWord に渡すプロンプトのテンプレート。
+// %s は順に fromLang, toLang, fromLang, toLang が入る。
+// raw string なので行頭インデント禁止（タブがそのまま本文に入るため左寄せで書く）。
+const promptTemplate = `Given a word, return ONLY a JSON object with exactly these 4 keys:
+
+- "Front": the word in %s
+
+- "Back": the meaning(s) of the word in %s.
+  Default to ONE meaning. Prefer the fewest senses possible.
+  Split with "；" ONLY when the senses are genuinely UNRELATED
+  (a different part of speech, e.g. patient=患者/忍耐強い, or an unrelated concept, e.g. bank=銀行/土手).
+  Treat different situations, registers, or politeness levels of the SAME idea as ONE sense, NOT a new sense
+  (e.g. "hello" is just 挨拶: do NOT split こんにちは and もしもし).
+  Use "、" only for synonyms within the same sense, and avoid padding with near-synonyms.
+
+- "Front_Sentence": a natural example sentence in %s using the word in its MOST COMMON sense
+
+- "Back_Sentence": the translation of that sentence in %s, using the SAME sense as Front_Sentence
+
+No markdown, no explanation, only the JSON object.
+
+Example of a word with multiple senses, "patient":
+{"Front":"patient","Back":"患者；忍耐強い","Front_Sentence":"The doctor examined the patient carefully.","Back_Sentence":"医者は患者を注意深く診察した。"}
+
+Example of a single-sense word, "apple":
+{"Front":"apple","Back":"りんご","Front_Sentence":"She ate a red apple.","Back_Sentence":"彼女は赤いりんごを食べた。"}
+
+Example of a word that looks multi-sense but is ONE sense, "hello" (greeting only, do NOT split by situation):
+{"Front":"hello","Back":"こんにちは","Front_Sentence":"She said hello to everyone she met.","Back_Sentence":"彼女は会う人みんなに挨拶した。"}`
+
 // generate new words
 func generateWord(word string) map[string]string {
 	cfg := loadConfig() // import config setting
@@ -313,15 +343,7 @@ func generateWord(word string) map[string]string {
 			Choices []Choice `json:"choices"`
 		}
 
-		content := fmt.Sprintf(
-			"Given a word, return ONLY a JSON object with exactly these 4 keys:\n"+
-				"- \"Front\": the word in %s\n"+
-				"- \"Front_Sentence\": a natural example sentence in %s using the word\n"+
-				"- \"Back\": the translation of the word in %s\n"+
-				"- \"Back_Sentence\": the translation of the example sentence in %s\n"+
-				"No markdown, no explanation, only the JSON object.",
-			fromLang, fromLang, toLang, toLang,
-		)
+		content := fmt.Sprintf(promptTemplate, fromLang, toLang, fromLang, toLang)
 
 		opai_req := OpenAIRequest{
 			Model: model,

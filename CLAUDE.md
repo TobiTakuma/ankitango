@@ -218,6 +218,17 @@ ankitango config show                     # 現在の設定を表示
 - モデル名を引数で上書き可能にして再ビルド不要にする設計を提案
 - README.md を更新：Requirements（OpenAI/Gemini）、`config apikey <provider> <key> [model]` の書き方とGemini例・モデル上書き例、`add -f` でのファイル一括取り込みの使い方と `fail.txt` の説明を追記。さらに「Supported LLMs」セクションを追加（対応プロバイダ表・デフォルトモデル・キー取得先・モデル上書き・不明プロバイダ実行で一覧表示）を将来追加前提で記載
 
+### 2026-06-12（TUI着手・最小雛形をAIが作成）
+**ユーザー:**
+- TUI対応の進め方を「最初だけAI、あとは自分」に決定（雛形はAI、画面追加は本人）
+
+**Claude:**
+- 使用ライブラリを説明：bubbletea（Elm Architecture の Model/Update/View でTUIを作るフレームワーク）、bubbles（textinput等の既製部品）、lipgloss（スタイリング）。`go get` で3つ追加し `go mod tidy`
+- `cmd/tui.go` を新規作成：`tuiCmd`（`ankitango tui` で起動）＋ 最小の `model`/`initialModel`/`Init`/`Update`/`View`。単語入力欄1つ・Enterで確定・esc/ctrl+cで終了。`Update` の Enter 部分に「デッキ選択→generateWord→addCard へ進める」TODOコメントを残した
+- `root.go` の `init()` に `rootCmd.AddCommand(tuiCmd)` を追加
+- 既存ロジック（`getDeckName`/`generateWord`/`addCard`）はTUIからそのまま呼べる（TUIは見た目の層）。`go build`/`go vet` OK
+- 次の一歩：`add` の流れ（単語入力→デッキ選択→AI生成プレビュー→確認して追加）を画面（state）として足していく
+
 ---
 
 ## 実装のポイント（学んだこと）
@@ -244,6 +255,25 @@ ankitango config show                     # 現在の設定を表示
 ---
 
 ## 質問ログ
+
+### 2026-06-12
+**質問：** TUIに対応させたい。どこから始めればいい？
+
+**回答：**
+- 使うのは bubbletea（TUIフレームワーク。Model=状態 / Update=入力で更新 / View=描画 の3点セット）／bubbles（textinput等の部品）／lipgloss（見た目）
+- 始め方：①画面フローを紙で決める（`add` と同じ 単語入力→デッキ選択→AI生成プレビュー→確認）②`cmd/tui.go` に `tuiCmd` を作り `root.go` で登録 ③最小の Model/Update/View（入力欄1つ）から動かす ④既存関数（`getDeckName`/`generateWord`/`addCard`）はそのまま呼ぶ＝ロジックは流用、TUIは見た目の層
+- いきなり全画面を作らず「入力欄1つ」から始めるのがコツ
+- 進め方は「最初だけAI、あとは自分」を選択 → 最小雛形をAIが作成（変更ログ参照）
+
+### 2026-06-09
+**質問：** 全コマンドに `if !checkAnkiRunning() { return }` を書くのは無駄なので、`root.go` の `init()` に書けばよいのでは？ この推測は正しい？
+
+**回答：**
+- 「重複を1か所にまとめたい（DRY）」という方向性は正しいが、`init()` は不適切
+- `init()` はパッケージ読み込み時に必ず1回走る。そこで `return` すると後続の `AddCommand` が実行されず、Anki停止時にコマンドが一切登録されない → `config apikey` すら「unknown command」になり、Anki無しでは設定もできなくなる（元より悪化）
+- `init()` はどのコマンド（config・--help含む）でも走る。Anki が要るのは実際には `add` と `list` だけなので scope が広すぎる
+- 正攻法は cobra の `PreRunE`：Anki が必要なコマンド（`addCmd`/`listCmd`）にだけ「`Run` 直前にチェック→失敗なら error を返す」フックを付ける。config には付けない。チェック関数を1つ作って両方の `PreRunE` に渡せば DRY も満たせる
+- `init()` はコマンド・フラグ登録だけに戻すのが正しい
 
 ### 2026-06-05
 **質問：** Gemini なども対応させたい。どうすればいい？

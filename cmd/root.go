@@ -26,4 +26,6 @@ func init() {
 	configCmd.AddCommand(configApiKeyCmd)
 	configCmd.AddCommand(configLangCmd)
 	configCmd.AddCommand(configShowCmd)
+
+	rootCmd.AddCommand(tuiCmd)
 }
