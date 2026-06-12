@@ -260,7 +260,7 @@ func isDeck(deckList []string, deckName string) bool {
 }
 
 // generateWord に渡すプロンプトのテンプレート。
-// %s は順に fromLang, toLang, fromLang, toLang が入る。
+// %s は順に fromLang, toLang, toLang, fromLang, toLang が入る。
 // raw string なので行頭インデント禁止（タブがそのまま本文に入るため左寄せで書く）。
 const promptTemplate = `Given a word, return ONLY a JSON object with exactly these 4 keys:
 
@@ -273,6 +273,7 @@ const promptTemplate = `Given a word, return ONLY a JSON object with exactly the
   Treat different situations, registers, or politeness levels of the SAME idea as ONE sense, NOT a new sense
   (e.g. "hello" is just 挨拶: do NOT split こんにちは and もしもし).
   Use "、" only for synonyms within the same sense, and avoid padding with near-synonyms.
+  If multiple senses translate to the SAME word in %s, list that word only ONCE (never repeat it).
 
 - "Front_Sentence": a natural example sentence in %s using the word in its MOST COMMON sense
 
@@ -343,7 +344,7 @@ func generateWord(word string) map[string]string {
 			Choices []Choice `json:"choices"`
 		}
 
-		content := fmt.Sprintf(promptTemplate, fromLang, toLang, fromLang, toLang)
+		content := fmt.Sprintf(promptTemplate, fromLang, toLang, toLang, fromLang, toLang)
 
 		opai_req := OpenAIRequest{
 			Model: model,
