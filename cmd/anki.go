@@ -4,8 +4,182 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"time"
 )
+
+// get all notes from deck
+func findNotes(deckName string) []int {
+	type Params struct {
+		Query string `json:"query"`
+	}
+
+	type AnkiRequest struct {
+		Action  string `json:"action"`
+		Version int    `json:"version"`
+		Params  Params `json:"params"`
+	}
+
+	query := "deck:" + deckName
+	req := AnkiRequest{
+		Action:  "findNotes",
+		Version: 6,
+		Params: Params{
+			Query: query,
+		},
+	}
+
+	body, err := ankiInvoke(req)
+	if err != nil {
+		return nil
+	}
+
+	type AnkiResponse struct {
+		Result []int   `json:"result"`
+		Error  *string `json:"error"`
+	}
+
+	var ankiResp AnkiResponse
+	json.Unmarshal(body, &ankiResp)
+	return ankiResp.Result
+}
+
+func noteInfo(notesId int) string {
+	type Params struct {
+		Notes []int `json:"notes"`
+	}
+
+	type AnkiRequest struct {
+		Action  string `json:"action"`
+		Version int    `json:"version"`
+		Params  Params `json:"params"`
+	}
+
+	ids := []int{notesId}
+
+	req := AnkiRequest{
+		Action:  "notesInfo",
+		Version: 6,
+		Params: Params{
+			Notes: ids,
+		},
+	}
+	body, err := ankiInvoke(req)
+	if err != nil {
+		return ""
+	}
+
+	type FieldInfo struct {
+		Value string `json:"value"`
+		Order int    `json:"order"`
+	}
+
+	type NoteInfo struct {
+		NoteID int                  `json:"noteId"`
+		Fields map[string]FieldInfo `json:"fields"`
+	}
+
+	type AnkiResponse struct {
+		Result []NoteInfo `json:"result"`
+		Error  *string    `json:"error"`
+	}
+
+	var ankiResp AnkiResponse
+	json.Unmarshal(body, &ankiResp)
+
+	if len(ankiResp.Result) == 0 {
+		return ""
+	}
+
+	front := ankiResp.Result[0].Fields["Front"].Value
+
+	fmt.Println("\nFront         :", ankiResp.Result[0].Fields["Front"].Value)
+	fmt.Println("Back          :", ankiResp.Result[0].Fields["Front_Sentence"].Value)
+	fmt.Println("Front Sentence:", ankiResp.Result[0].Fields["Back"].Value)
+	fmt.Println("Back Sentence :", ankiResp.Result[0].Fields["Back_Sentence"].Value)
+
+	return front
+}
+
+func updateNoteFields(noteId int, fields map[string]string) error {
+	type Note struct {
+		ID     int               `json:"id"`
+		Fields map[string]string `json:"fields"`
+	}
+
+	type Params struct {
+		Note Note `json:"note"`
+	}
+	type AnkiRequest struct {
+		Action  string `json:"action"`
+		Version int    `json:"version"`
+		Params  Params `json:"params"`
+	}
+
+	req := AnkiRequest{
+		Action:  "updateNoteFields",
+		Version: 6,
+		Params: Params{
+			Note: Note{
+				ID:     noteId,
+				Fields: fields,
+			},
+		},
+	}
+
+	body, err := ankiInvoke(req)
+	if err != nil {
+		return err
+	}
+
+	type AnkiResponse struct {
+		Result *int64  `json:"result"`
+		Error  *string `json:"error"`
+	}
+
+	var ankiResp AnkiResponse       // 空の入れ物を用意
+	json.Unmarshal(body, &ankiResp) // JSONをGoのデータに流し込む
+
+	// say error or success
+	if ankiResp.Error != nil {
+		return fmt.Errorf("Error: %s", *ankiResp.Error)
+	}
+	fmt.Println("Success!")
+	return nil
+}
+
+// send request to anki(localhost)
+// try 3 times when an ankiconnect error occurs
+func ankiInvoke(req any) ([]byte, error) {
+	url := "http://127.0.0.1:8765"
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		panic(err)
+	}
+
+	var resp *http.Response
+	for i := 0; i < 3; i++ {
+		// send request to localhost
+		r, err := http.Post(
+			url,                       // where
+			"application/json",        // which data type(json)
+			bytes.NewBuffer(jsonData), // what data
+		)
+		if err == nil {
+			resp = r
+			break
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("couldn't connect")
+	}
+
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
 
 func isNote(deckName string, word string) (bool, error) {
 	// 1 make request structure
@@ -49,12 +223,6 @@ func isNote(deckName string, word string) (bool, error) {
 	return false, nil
 }
 
-func printList(list []string) {
-	for i := 0; i < len(list); i++ {
-		fmt.Println(list[i])
-	}
-}
-
 func isDeck(deckList []string, deckName string) bool {
 	for i := 0; i < len(deckList); i++ {
 		if deckList[i] == deckName {
@@ -62,8 +230,8 @@ func isDeck(deckList []string, deckName string) bool {
 		}
 	}
 	fmt.Println("Error:  deck was not found: " + deckName)
-	fmt.Println(`If the deck name contains spaces, enclose it in double quotes.
-				Example: ankitango add “hello world” “deckName”`)
+	fmt.Println(`If the deck name contains spaces, enclose it in double quotes.`)
+	fmt.Println(`Example: ankitango add “hello world” “deckName”`)
 	return false
 }
 

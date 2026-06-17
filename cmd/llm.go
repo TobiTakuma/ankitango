@@ -24,7 +24,8 @@ const promptTemplate = `Given a word, return ONLY a JSON object with exactly the
   Use "、" only for synonyms within the same sense, and avoid padding with near-synonyms.
   If multiple senses translate to the SAME word in %s, list that word only ONCE (never repeat it).
 
-- "Front_Sentence": a natural example sentence in %s using the word in its MOST COMMON sense
+- "Front_Sentence": a natural example sentence in %s using the word in its MOST COMMON sense.
+  Keep it 6–12 words. Avoid overly simple drills and overly long multi-clause sentences.
 
 - "Back_Sentence": the translation of that sentence in %s, using the SAME sense as Front_Sentence
 
@@ -34,7 +35,7 @@ Example of a word with multiple senses, "patient":
 {"Front":"patient","Back":"患者；忍耐強い","Front_Sentence":"The doctor examined the patient carefully.","Back_Sentence":"医者は患者を注意深く診察した。"}
 
 Example of a single-sense word, "apple":
-{"Front":"apple","Back":"りんご","Front_Sentence":"She ate a red apple.","Back_Sentence":"彼女は赤いりんごを食べた。"}
+{"Front":"apple","Back":"りんご","Front_Sentence":"He bought fresh apples at the market.","Back_Sentence":"彼は市場で新鮮なリンゴを買った。"}
 
 Example of a word that looks multi-sense but is ONE sense, "hello" (greeting only, do NOT split by situation):
 {"Front":"hello","Back":"こんにちは","Front_Sentence":"She said hello to everyone she met.","Back_Sentence":"彼女は会う人みんなに挨拶した。"}`

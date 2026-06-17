@@ -1,14 +1,10 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"path/filepath"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -18,7 +14,7 @@ var modelName_AddAnkiCLI = "ankitango"
 
 var addCmd = &cobra.Command{
 	Use:   "add [words] [deckName]",
-	Short: "Add word to Anki",
+	Short: "Add a word to Anki",
 	Run: func(cmd *cobra.Command, args []string) {
 		filePath, _ := cmd.Flags().GetString("file")
 
@@ -54,6 +50,7 @@ var addCmd = &cobra.Command{
 
 		var failedWords []string
 		for i := 0; i < len(wordsArray); i++ {
+			fmt.Println("--------------------")
 			word := wordsArray[i]
 
 			exists, err := isNote(deckName, word)
@@ -89,48 +86,6 @@ var addCmd = &cobra.Command{
 			fail(failedWords, outPath)
 		}
 	},
-}
-
-var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "list all deck in your Anki",
-	Run: func(cmd *cobra.Command, args []string) {
-		if !checkAnkiRunning() {
-			return
-		}
-
-		printList(getDeckName())
-	},
-}
-
-func ankiInvoke(req any) ([]byte, error) {
-	url := "http://127.0.0.1:8765"
-	jsonData, err := json.Marshal(req)
-	if err != nil {
-		panic(err)
-	}
-
-	var resp *http.Response
-	for i := 0; i < 3; i++ {
-		// send request to localhost
-		r, err := http.Post(
-			url,                       // where
-			"application/json",        // which data type(json)
-			bytes.NewBuffer(jsonData), // what data
-		)
-		if err == nil {
-			resp = r
-			break
-		}
-
-		time.Sleep(500 * time.Millisecond)
-	}
-	if resp == nil {
-		return nil, fmt.Errorf("couldn't connect")
-	}
-
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
 }
 
 // add new card to Anki deck

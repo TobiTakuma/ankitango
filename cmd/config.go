@@ -12,8 +12,8 @@ type Config struct {
 	APIKey   string `json:"api_key"`
 	FromLang string `json:"fromlang"`
 	ToLang   string `json:"tolang"`
-	BaseURL  string `json:"base_url"` // ← 追加
-	Model    string `json:"model"`    // ← 追加
+	BaseURL  string `json:"base_url"`
+	Model    string `json:"model"`
 }
 
 type Provider struct {
@@ -47,12 +47,12 @@ func saveConfig(cfg Config) {
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Manage the config data. It has three sub command",
+	Short: "Manage settings (apikey / lang / show)",
 }
 
 var configApiKeyCmd = &cobra.Command{
 	Use:   "apikey [provider] [key] [model]",
-	Short: "Save the api key",
+	Short: "Save the API key",
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) < 2 {
 			fmt.Println("Error: specify provider and key (Ex: ankitango apikey openai sk-...)")
@@ -83,7 +83,7 @@ var configApiKeyCmd = &cobra.Command{
 
 var configLangCmd = &cobra.Command{
 	Use:   "lang [fromLang][toLang]",
-	Short: "Save the langage settings",
+	Short: "Save the language settings",
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) < 2 {
 			fmt.Println("Error: specify language")
@@ -101,7 +101,7 @@ var configLangCmd = &cobra.Command{
 
 var configShowCmd = &cobra.Command{
 	Use:   "show",
-	Short: "View current setting",
+	Short: "View current settings",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := loadConfig()
 		key := cfg.APIKey

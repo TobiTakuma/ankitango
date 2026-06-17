@@ -2,15 +2,16 @@
 A CLI tool that automatically generates translations and example sentences using AI, then adds them to Anki.
 
 ```bash
-ankitango add "choice" "test"
+ankitango add "decline" test
+--------------------
 
 Generating...
-{
-  "Front": "choice",
-  "Front_Sentence": "It's important to make the right choice when it comes to your career.",
-  "Back": "選択",
-  "Back_Sentence": "キャリアに関して正しい選択をすることが重要です。"
-}
+
+Front         : decline
+Back          : 減少する、下がる
+Front Sentence: The company saw a decline in profits last year.
+Back Sentence : その会社は昨年、利益が減少した。
+
 Success!
 ```
 ## Requirements 
@@ -20,7 +21,7 @@ Success!
    
    tools -> Add-ons -> Get Add-ons... -> type 2055492159 -> restart app
 3. An API key for OpenAI or Gemini.   
-(In my case, I tried more than 300 words, but it only cost $0.02. If you're concerned about API costs, I recommend the Gemini API. Gemini has a generous free API tier (verify your age and obtain an API key).)
+(In my case, I tried more than 300 words in openai key, then it only cost $0.02. But you're concerned about API costs, I recommend the Gemini API. Gemini has a free API tier (verify your age and obtain an API key).)
 
       | provider |where to get an API key                       |
       | -------- |--------------------------------------------- |
@@ -59,7 +60,34 @@ powershell -Command "Invoke-WebRequest -Uri https://raw.githubusercontent.com/To
 
 If you are asked for a password, please enter the password for your device.
 
-### 2) Set up
+### 2) Verify installation
+
+Run the following command to confirm ankitango was installed correctly:
+```bash
+ankitango --help
+```
+If you see a list of commands, you're good to go.
+
+**If you get `command not found`:**
+
+macOS/Linux — add `/usr/local/bin` to your PATH:
+```bash
+echo 'export PATH=$PATH:/usr/local/bin' >> ~/.zshrc
+source ~/.zshrc
+```
+Then run `ankitango --help` again.
+
+Windows — restart your terminal after installation. If it still doesn't work, check that the folder shown at the end of the installer output is included in your system PATH.
+
+### 3) Verify AnkiConnect is working
+
+1. Open Anki
+2. Go to **Tools → Add-ons** and confirm `AnkiConnect` appears in the list
+3. Restart Anki if you just installed it
+
+If ankitango shows `Anki is not running`, AnkiConnect is not responding. Check the steps above.
+
+### 4) Set up
 Before you begin using ankitango, run three commands.  
 (Detailed instructions are provided below)
 
@@ -123,6 +151,7 @@ Make sure Anki is running before executing commands.
 | command | discription                                               |
 | ------- | --------------------------------------------------------- |
 | add     | Generate words and example sentences and add them to Anki |
+| regen   | Regenerate translations and example sentences for all cards in a deck |
 | config  | Manage the config data. It has 3 subcommand.              |
 | list    | List all deck in Anki                                     |
 | help    | help command                                              |
@@ -173,6 +202,13 @@ Ex) You want add "word" to "wordDeck" deck.
    ```bash
    ankitango config show
    ```
+### regen "deckName"
+Regenerate translations and example sentences for all cards(Only those with the card type `ankitango`) in a deck using AI, and overwrite the existing content.
+Useful when you want to refresh cards after changing your language settings or updating the prompt.
+```bash
+ankitango regen wordDeck
+```
+
 ### list
 1. list all your Anki deck
    ```bash
@@ -180,7 +216,8 @@ Ex) You want add "word" to "wordDeck" deck.
    ```
 
 
-## Card Format
+## Card Format. 
+
 
 | Field          | Content                     |
 | -------------- | --------------------------- |
