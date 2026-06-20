@@ -25,7 +25,7 @@ const promptTemplate = `Given a word, return ONLY a JSON object with exactly the
   If multiple senses translate to the SAME word in %s, list that word only ONCE (never repeat it).
 
 - "Front_Sentence": a natural example sentence in %s using the word in its MOST COMMON sense.
-  Keep it 6–12 words. Avoid overly simple drills and overly long multi-clause sentences.
+  Keep it 6–9 words. Avoid overly simple drills and overly long multi-clause sentences.
 
 - "Back_Sentence": the translation of that sentence in %s, using the SAME sense as Front_Sentence
 

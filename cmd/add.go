@@ -32,6 +32,7 @@ var addCmd = &cobra.Command{
 		} else {
 			if len(args) < 2 {
 				fmt.Println("Error: Please specify both word and deckname.")
+				generateWord(args[0])
 				return
 			}
 			wordsArray = []string{args[0]}
