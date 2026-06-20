@@ -34,7 +34,13 @@ var regen = &cobra.Command{
 			var frontWord string
 			frontWord = noteInfo(noteIds[i])
 
-			updateNoteFields(noteIds[i], generateWord(frontWord))
+			fields, err := generateWord(frontWord)
+			if err != nil {
+				fmt.Println("Error:", err)
+				continue
+			}
+			printLLMresult(fields)
+			updateNoteFields(noteIds[i], fields)
 		}
 	},
 }

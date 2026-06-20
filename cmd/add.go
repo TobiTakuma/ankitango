@@ -32,7 +32,6 @@ var addCmd = &cobra.Command{
 		} else {
 			if len(args) < 2 {
 				fmt.Println("Error: Please specify both word and deckname.")
-				generateWord(args[0])
 				return
 			}
 			wordsArray = []string{args[0]}
@@ -64,11 +63,13 @@ var addCmd = &cobra.Command{
 				continue
 				// return
 			}
-			fields := generateWord(wordsArray[i])
-			if len(fields) == 0 {
+			fields, err := generateWord(wordsArray[i])
+			if err != nil {
+				fmt.Println("Error:", err)
+				failedWords = append(failedWords, word)
 				continue
-				//return
 			}
+			printLLMresult(fields)
 			if err := addCard(fields, deckName); err != nil {
 				if errors.Is(err, ErrConnection) {
 					fmt.Println("Connection failed addCard ->", word)

@@ -8,6 +8,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var fields map[string]string
+
+type generateResultMsg struct {
+	fields map[string]string
+	err    error
+}
+
 // ============================================================================
 // bubbletea の考え方（最初にここを読む）
 // ----------------------------------------------------------------------------
@@ -54,8 +61,10 @@ var tuiCmd = &cobra.Command{
 // 画面に出ているものは、必ずこの中のどれかに対応している。
 // 画面を増やしたくなったら、まずここにフィールドを足す（例: step int で今どの画面か）。
 type model struct {
-	input textinput.Model // 入力欄。これ自体が小さな bubbletea 部品（bubbles）
-	word  string          // Enter で確定した単語。確定前は "" のまま
+	input   textinput.Model // 入力欄。これ自体が小さな bubbletea 部品（bubbles）
+	word    string          // Enter で確定した単語。確定前は "" のまま
+	loading bool
+	result  map[string]string
 }
 
 // initialModel = 起動時の状態を1個作って返す。ここが「画面の初期値」。
@@ -93,10 +102,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// 入力欄に今入っている文字列を取り出して、確定値として state に保存する。
 			// → 状態が変わったので、この後 bubbletea が View を呼び直し、画面に反映される。
 			m.word = m.input.Value()
+			m.loading = true
+			// fields = generateWord(m.word)
 			// TODO: ここから先へ画面を進める（デッキ選択 → generateWord → addCard）。
 			//       例: m に step を持たせ、ここで m.step = 1 にして View を分岐させる。
-			return m, nil
+			return m, generateWordCmd(m.word)
 		}
+	case generateResultMsg:
+		m.loading = false
+		m.result = msg.fields
+		return m, nil
+
 	}
 
 	// 上の case に当てはまらなかった入力（普通の文字・矢印キー・Backspace など）は、
@@ -105,6 +121,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func generateWordCmd(word string) tea.Cmd {
+	return func() tea.Msg {
+		fields, err := generateWord(word)
+		return generateResultMsg{fields: fields, err: err}
+	}
 }
 
 // View = 今の状態(model)を1本の文字列に変換するだけ。画面に出るのはこの戻り値。
@@ -116,6 +139,18 @@ func (m model) View() string {
 	if m.word != "" {
 		// 確定済みなら、確定した単語も表示する
 		s += "word: " + m.word + "\n\n"
+
+		// s += fmt.Sprintf("\nFront         : %v\nBack          : %v\nFront Sentence: %v\nBack Sentence : %v\n",
+		// 	fields["Front"],
+		// 	fields["Back"],
+		// 	fields["Front_Sentence"],
+		// 	fields["Back_Sentence"],
+		// )
+
+		s += fmt.Sprintf("\nFront         : %s\n", fields["Front"])
+		s += fmt.Sprintf("Back          : %s\n", fields["Back"])
+		s += fmt.Sprintf("Front Sentence: %s\n", fields["Front_Sentence"])
+		s += fmt.Sprintf("Back Sentence : %s\n\n", fields["Back_Sentence"])
 	}
 	s += "(enter: confirm / esc: quit)\n" // 操作のヒント（フッター）
 	return s

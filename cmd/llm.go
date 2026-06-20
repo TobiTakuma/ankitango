@@ -41,19 +41,15 @@ Example of a word that looks multi-sense but is ONE sense, "hello" (greeting onl
 {"Front":"hello","Back":"こんにちは","Front_Sentence":"She said hello to everyone she met.","Back_Sentence":"彼女は会う人みんなに挨拶した。"}`
 
 // generate new words
-func generateWord(word string) map[string]string {
-	cfg := loadConfig() // import config setting
-	// if apikey has not been configured, return error
+func generateWord(word string) (map[string]string, error) {
+	cfg := loadConfig()
 	if cfg.APIKey == "" {
-		fmt.Println("Error: No API key has been configured. \nPlease configure it using `ankitango config apikey <provider> <key>`.")
-		return map[string]string{}
+		return nil, fmt.Errorf("No API key has been configured.\nPlease configure it using `ankitango config apikey <provider> <key>`.")
 	}
-	if (cfg.FromLang == "") || (cfg.ToLang == "") {
-		fmt.Println("Error: No language has been configured. \nPlease configure it using ankitango config apikey <from> <to>`.\nExample) if you want to from english to japanese. \n`ankitango config lang English Japanese`")
-		return map[string]string{}
+	if cfg.FromLang == "" || cfg.ToLang == "" {
+		return nil, fmt.Errorf("No language has been configured.\nPlease configure it using `ankitango config lang <from> <to>`.\nExample: `ankitango config lang English Japanese`")
 	}
 	baseURL := cfg.BaseURL
-	// for people who used previous versions
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1/chat/completions"
 	}
@@ -61,15 +57,10 @@ func generateWord(word string) map[string]string {
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
-	openai_apikey := cfg.APIKey
 	fromLang := cfg.FromLang
 	toLang := cfg.ToLang
-	fmt.Println("\nGenerating...")
 
 	for {
-		url := baseURL
-
-		// json structure for request
 		type Messages struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
@@ -82,8 +73,6 @@ func generateWord(word string) map[string]string {
 			Messages        []Messages      `json:"messages"`
 			Response_format Response_format `json:"response_format"`
 		}
-
-		// json structure for responce
 		type OpenAIMessage struct {
 			Content string `json:"content"`
 		}
@@ -106,16 +95,15 @@ func generateWord(word string) map[string]string {
 		}
 		jsonData, _ := json.Marshal(opai_req)
 
-		req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+		req, _ := http.NewRequest("POST", baseURL, bytes.NewBuffer(jsonData))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+openai_apikey)
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			panic(err)
+			return nil, fmt.Errorf("Network error: %w", err)
 		}
-
 		defer resp.Body.Close()
 
 		body, _ := io.ReadAll(resp.Body)
@@ -124,24 +112,21 @@ func generateWord(word string) map[string]string {
 		json.Unmarshal(body, &openAIResp)
 
 		if len(openAIResp.Choices) == 0 {
-			fmt.Println("Error: The responce from LLM is incorrect.\nCheck your API key or network")
-			return map[string]string{}
+			return nil, fmt.Errorf("Invalid response from LLM. Check your API key or network.")
 		}
 
-		// contentを取り出す
 		result := openAIResp.Choices[0].Message.Content
-
-		// fmt.Println(result)
 		var fields map[string]string
 		json.Unmarshal([]byte(result), &fields)
 
-		fmt.Println("\nFront         :", fields["Front"])
-		fmt.Println("Back          :", fields["Back"])
-		fmt.Println("Front Sentence:", fields["Front_Sentence"])
-		fmt.Println("Back Sentence :", fields["Back_Sentence"], "\n")
-
 		if fields != nil {
-			return fields
+			return fields, nil
 		}
 	}
+}
+func printLLMresult(fields map[string]string) {
+	fmt.Println("\nFront         :", fields["Front"])
+	fmt.Println("Back          :", fields["Back"])
+	fmt.Println("Front Sentence:", fields["Front_Sentence"])
+	fmt.Println("Back Sentence :", fields["Back_Sentence"], "\n")
 }
