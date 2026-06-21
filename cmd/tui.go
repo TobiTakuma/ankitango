@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var fields map[string]string
-
 type generateResultMsg struct {
 	fields map[string]string
 	err    error
@@ -61,10 +59,12 @@ var tuiCmd = &cobra.Command{
 // 画面に出ているものは、必ずこの中のどれかに対応している。
 // 画面を増やしたくなったら、まずここにフィールドを足す（例: step int で今どの画面か）。
 type model struct {
-	input   textinput.Model // 入力欄。これ自体が小さな bubbletea 部品（bubbles）
-	word    string          // Enter で確定した単語。確定前は "" のまま
-	loading bool
-	result  map[string]string
+	input     textinput.Model // 入力欄。これ自体が小さな bubbletea 部品（bubbles）
+	word      string          // Enter で確定した単語。確定前は "" のまま
+	loading   bool
+	result    map[string]string
+	deck      string
+	isDeckSet bool
 }
 
 // initialModel = 起動時の状態を1個作って返す。ここが「画面の初期値」。
@@ -138,19 +138,19 @@ func (m model) View() string {
 	s += m.input.View() + "\n\n" // 入力欄も「自分を文字列にする View」を持っている
 	if m.word != "" {
 		// 確定済みなら、確定した単語も表示する
-		s += "word: " + m.word + "\n\n"
+		s += "word: " + m.word + "\n"
 
-		// s += fmt.Sprintf("\nFront         : %v\nBack          : %v\nFront Sentence: %v\nBack Sentence : %v\n",
-		// 	fields["Front"],
-		// 	fields["Back"],
-		// 	fields["Front_Sentence"],
-		// 	fields["Back_Sentence"],
-		// )
+		if m.result["Front"] == m.word {
+			s += fmt.Sprintf("\nFront         : %s\n", m.result["Front"])
+			s += fmt.Sprintf("Back          : %s\n", m.result["Back"])
+			s += fmt.Sprintf("Front Sentence: %s\n", m.result["Front_Sentence"])
+			s += fmt.Sprintf("Back Sentence : %s\n\n", m.result["Back_Sentence"])
+		} else {
+			s += "\n\n\n\n\n\n"
+		}
 
-		s += fmt.Sprintf("\nFront         : %s\n", fields["Front"])
-		s += fmt.Sprintf("Back          : %s\n", fields["Back"])
-		s += fmt.Sprintf("Front Sentence: %s\n", fields["Front_Sentence"])
-		s += fmt.Sprintf("Back Sentence : %s\n\n", fields["Back_Sentence"])
+	} else {
+		s += "\n\n\n\n\n\n\n"
 	}
 	s += "(enter: confirm / esc: quit)\n" // 操作のヒント（フッター）
 	return s
