@@ -16,23 +16,44 @@ var regen = &cobra.Command{
 		}
 		var deckName = args[0]
 
-		if !checkAnkiRunning() {
+		if err := checkAnkiRunning(); err != nil {
+			fmt.Println("Error:", err)
 			return
 		}
-		if !isDeck(getDeckName(), deckName) {
+		decks, err := getDeckName()
+		if err != nil {
+			fmt.Println("Error:", err)
 			return
 		}
-		if !IsModel() {
-			addNewModel()
+		if err := isDeck(decks, deckName); err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		modelExists, err := IsModel()
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		if !modelExists {
+			if err := addNewModel(); err != nil {
+				fmt.Println("Error:", err)
+				return
+			}
 		}
 
-		var noteIds []int
-		noteIds = findNotes(deckName)
+		noteIds, err := findNotes(deckName)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
 
 		for i := 0; i < len(noteIds); i++ {
 			fmt.Println("--------------------")
-			var frontWord string
-			frontWord = noteInfo(noteIds[i])
+			frontWord, err := noteInfo(noteIds[i])
+			if err != nil {
+				fmt.Println("Error:", err)
+				continue
+			}
 
 			fields, err := generateWord(frontWord)
 			if err != nil {
@@ -40,7 +61,10 @@ var regen = &cobra.Command{
 				continue
 			}
 			printLLMresult(fields)
-			updateNoteFields(noteIds[i], fields)
+			if err := updateNoteFields(noteIds[i], fields); err != nil {
+				fmt.Println("Error:", err)
+				continue
+			}
 		}
 	},
 }

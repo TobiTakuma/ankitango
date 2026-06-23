@@ -10,11 +10,17 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all decks in Anki",
 	Run: func(cmd *cobra.Command, args []string) {
-		if !checkAnkiRunning() {
+		if err := checkAnkiRunning(); err != nil {
+			fmt.Println("Error:", err)
 			return
 		}
 
-		printList(getDeckName())
+		decks, err := getDeckName()
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		printList(decks)
 	},
 }
 

@@ -59,21 +59,24 @@ var tuiCmd = &cobra.Command{
 // 画面に出ているものは、必ずこの中のどれかに対応している。
 // 画面を増やしたくなったら、まずここにフィールドを足す（例: step int で今どの画面か）。
 type model struct {
-	input     textinput.Model // 入力欄。これ自体が小さな bubbletea 部品（bubbles）
-	word      string          // Enter で確定した単語。確定前は "" のまま
-	loading   bool
-	result    map[string]string
-	deck      string
-	isDeckSet bool
+	input   textinput.Model // 入力欄。これ自体が小さな bubbletea 部品（bubbles）
+	word    string          // Enter で確定した単語。確定前は "" のまま
+	loading bool
+	result  map[string]string
+	deck    string
+	state   int
 }
 
 // initialModel = 起動時の状態を1個作って返す。ここが「画面の初期値」。
 func initialModel() model {
 	ti := textinput.New()
-	ti.Placeholder = "type a word..." // 何も打っていない時に薄く出る案内文
+	ti.Placeholder = "type a deck..." // 何も打っていない時に薄く出る案内文
 	ti.Focus()                        // カーソルをこの入力欄に置く（複数欄ある時は1つだけ Focus する）
 
-	return model{input: ti}
+	return model{
+		input: ti,
+		state: 0,
+	}
 }
 
 // Init = 起動直後に1回だけ呼ばれる。「最初にやっておきたい仕事」を tea.Cmd で返す。
@@ -99,14 +102,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "enter":
-			// 入力欄に今入っている文字列を取り出して、確定値として state に保存する。
-			// → 状態が変わったので、この後 bubbletea が View を呼び直し、画面に反映される。
-			m.word = m.input.Value()
-			m.loading = true
-			// fields = generateWord(m.word)
-			// TODO: ここから先へ画面を進める（デッキ選択 → generateWord → addCard）。
-			//       例: m に step を持たせ、ここで m.step = 1 にして View を分岐させる。
-			return m, generateWordCmd(m.word)
+			switch m.state {
+			case 0:
+				m.deck = m.input.Value()
+				m.loading = true
+				saveDeckCmd(m.word)
+
+			case 1:
+				m.word = m.input.Value()
+				m.loading = true
+				// fields = generateWord(m.word)
+				// TODO: ここから先へ画面を進める（デッキ選択 → generateWord → addCard）。
+				//       例: m に step を持たせ、ここで m.step = 1 にして View を分岐させる。
+				return m, generateWordCmd(m.word)
+				// 入力欄に今入っている文字列を取り出して、確定値として state に保存する。
+				// → 状態が変わったので、この後 bubbletea が View を呼び直し、画面に反映される。
+			}
+
 		}
 	case generateResultMsg:
 		m.loading = false
@@ -123,6 +135,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func saveDeckCmd(deck string) tea.Cmd {
+	return func() tea.Msg {
+		cfg := loadConfig()
+		cfg.tuiDeckName = deck
+		saveConfig(cfg)
+
+		return nil
+	}
+}
+
 func generateWordCmd(word string) tea.Cmd {
 	return func() tea.Msg {
 		fields, err := generateWord(word)
@@ -136,22 +158,28 @@ func generateWordCmd(word string) tea.Cmd {
 func (m model) View() string {
 	s := "Add a word to Anki\n\n"
 	s += m.input.View() + "\n\n" // 入力欄も「自分を文字列にする View」を持っている
-	if m.word != "" {
-		// 確定済みなら、確定した単語も表示する
-		s += "word: " + m.word + "\n"
+	switch m.state {
+	case 0:
 
-		if m.result["Front"] == m.word {
-			s += fmt.Sprintf("\nFront         : %s\n", m.result["Front"])
-			s += fmt.Sprintf("Back          : %s\n", m.result["Back"])
-			s += fmt.Sprintf("Front Sentence: %s\n", m.result["Front_Sentence"])
-			s += fmt.Sprintf("Back Sentence : %s\n\n", m.result["Back_Sentence"])
+	case 1:
+		if m.word != "" {
+			// 確定済みなら、確定した単語も表示する
+			s += "word: " + m.word + "\n"
+
+			if m.result["Front"] == m.word {
+				s += fmt.Sprintf("\nFront         : %s\n", m.result["Front"])
+				s += fmt.Sprintf("Back          : %s\n", m.result["Back"])
+				s += fmt.Sprintf("Front Sentence: %s\n", m.result["Front_Sentence"])
+				s += fmt.Sprintf("Back Sentence : %s\n\n", m.result["Back_Sentence"])
+			} else {
+				s += "\n\n\n\n\n\n"
+			}
+
 		} else {
-			s += "\n\n\n\n\n\n"
+			s += "\n\n\n\n\n\n\n"
 		}
-
-	} else {
-		s += "\n\n\n\n\n\n\n"
 	}
+
 	s += "(enter: confirm / esc: quit)\n" // 操作のヒント（フッター）
 	return s
 }

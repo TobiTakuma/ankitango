@@ -9,11 +9,10 @@ import (
 	"strings"
 )
 
-func readWord(path string) []string {
+func readWord(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		fmt.Println("Error: could not open file: ", path)
-		return []string{}
+		return nil, fmt.Errorf("could not open file: %s", path)
 	}
 	defer file.Close()
 
@@ -25,8 +24,7 @@ func readWord(path string) []string {
 		reader.FieldsPerRecord = -1
 		records, err := reader.ReadAll() //[][]string
 		if err != nil {
-			fmt.Println("Error: failed to read CSV: ", err)
-			return []string{}
+			return nil, fmt.Errorf("failed to read CSV: %w", err)
 		}
 		for _, record := range records {
 			for _, cell := range record {
@@ -47,18 +45,17 @@ func readWord(path string) []string {
 		}
 
 	} else {
-		fmt.Println("Error: not support this file path")
-		return []string{}
+		return nil, fmt.Errorf("not support this file path: %s", path)
 	}
 
-	return words
+	return words, nil
 
 }
 
-func fail(failedWords []string, path string) {
+func fail(failedWords []string, path string) error {
 	file, err := os.Create(path)
 	if err != nil {
-		fmt.Println("Error: could not create fail.txt: ", err)
+		return fmt.Errorf("could not create fail.txt: %w", err)
 	}
 	defer file.Close()
 
@@ -67,4 +64,5 @@ func fail(failedWords []string, path string) {
 	}
 
 	fmt.Println("failed words were saved to ", path)
+	return nil
 }

@@ -244,6 +244,19 @@ ankitango config show                     # 現在の設定を表示
 - 可読性改善：プロンプト文字列を `"..."+ "..."` 連結 → raw string（バッククォート）→ さらに**パッケージ直下の `const promptTemplate`** に切り出し。関数本体は `fmt.Sprintf(promptTemplate, ...)` の1行に。raw string は行頭インデントが本文に混ざるので**左寄せで書く**注意をコメントに明記
 - 別言語検証：Ankiに触れず Gemini を直接叩いて English→Spanish をテスト（生成のみ）。few-shot が日本語ベタ書きでも**出力は全部スペイン語**になり日本語に引っ張られない／`hello→hola`（単義収束）/`spring`・`bank`（分割）も正常/`patient` の重複だけ上記で修正済みを確認
 
+### 2026-06-22（エラー処理をprint/panicからerror返却に統一・Claude実装）
+**ユーザーの指示により（Claude実装）:**
+- 「全てのエラー処理をプリントではなく `Errorf` で返すように」と指示。対象範囲は**ヘルパー関数のみ**（cobra の `Run` は受け取って表示する側に残す）、**panic も含める**を選択
+- `anki.go`：`findNotes`→`([]int, error)`／`noteInfo`→`(string, error)`／`isDeck`→`error`（見つからなければデッキ名＋ヒットを `fmt.Errorf` に）／`IsModel`→`(bool, error)`／`addNewModel`→`error`／`getDeckName`→`([]string, error)`／`checkAnkiRunning`→`error`（`bool` から変更、`nil`=起動中）。`ankiInvoke`・`IsModel`・`addNewModel`・`getDeckName`・`checkAnkiRunning` の `panic(err)` を `return ..., fmt.Errorf/err` に置換（CLAUDE.md「後でやること」の panic 残課題を解消）
+- `file.go`：`readWord`→`([]string, error)`／`fail`→`error`。`fail` は `os.Create` 失敗後に `return` せず nil ファイルに `defer Close()` する潜在バグも同時に修正
+- 呼び出し側（`add.go`/`list.go`/`regenerate.go` の `Run`）を新シグネチャに合わせて更新。`if !checkAnkiRunning()` 等の bool 分岐を `if err := ...; err != nil { fmt.Println("Error:", err); return }` 形に統一。`regenerate.go` で握り潰していた `updateNoteFields` の戻り `error` も拾うように
+- **対象外（据え置き）**：`isNote` の「already exists」表示（エラーでなく重複スキップの通知＝`(true, nil)` を返す）、`IsModel`/`addNewModel` の情報・成功表示、各 `Run` 内の引数不足チェックの `fmt.Println`（CLI最終地点なので表示でよい）
+- 確認：`go build ./...` OK。`go vet` の残2件（`config.go` の `tuiDeckName` 未エクスポートjsonタグ、`llm.go` の `printLLMresult` 余分な改行）は**今回未変更の既存警告**で本変更とは無関係
+
+**Claude:**
+- 着手前に `fmt.Errorf`（何か／なぜ）を説明。範囲が3層（ヘルパー関数・cobra Run本体・判定系print）に分かれ作業量が変わるため、対象範囲と panic 包含を `AskUserQuestion` で確認してから実装
+- 戻り値型を変えると呼び出し側が連動する点、`checkAnkiRunning` を gatekeeper（bool）から `error` に変える判断、`exists`/`modelExists` の命名衝突回避、`:=` のスコープ（if/forブロック内シャドーイング）に注意して実装
+
 ---
 
 ## 実装のポイント（学んだこと）

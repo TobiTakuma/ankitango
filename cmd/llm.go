@@ -53,7 +53,7 @@ func generateWord(word string) (map[string]string, error) {
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1/chat/completions"
 	}
-	model := cfg.Model
+	model := cfg.LLMModel
 	if model == "" {
 		model = "gpt-4o-mini"
 	}

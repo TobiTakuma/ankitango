@@ -9,11 +9,12 @@ import (
 )
 
 type Config struct {
-	APIKey   string `json:"api_key"`
-	FromLang string `json:"fromlang"`
-	ToLang   string `json:"tolang"`
-	BaseURL  string `json:"base_url"`
-	Model    string `json:"model"`
+	APIKey      string `json:"api_key"`
+	FromLang    string `json:"fromlang"`
+	ToLang      string `json:"tolang"`
+	BaseURL     string `json:"base_url"`
+	LLMModel    string `json:"model"`
+	tuiDeckName string `json:"tuiDeck"`
 }
 
 type Provider struct {
@@ -71,9 +72,9 @@ var configApiKeyCmd = &cobra.Command{
 
 		cfg := loadConfig() // read current setting
 		cfg.BaseURL = p.BaseURL
-		cfg.Model = p.Model
+		cfg.LLMModel = p.Model
 		if len(args) >= 3 {
-			cfg.Model = args[2]
+			cfg.LLMModel = args[2]
 		}
 		cfg.APIKey = args[1] // Override API key
 		saveConfig(cfg)
@@ -105,7 +106,7 @@ var configShowCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := loadConfig()
 		key := cfg.APIKey
-		model := cfg.Model
+		model := cfg.LLMModel
 		if len(key) > 10 {
 			key = key[:3] + "..." + key[len(key)-4:]
 		}

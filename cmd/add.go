@@ -26,26 +26,48 @@ var addCmd = &cobra.Command{
 				fmt.Println("Error: Please specify the deckname.")
 				return
 			}
-			wordsArray = readWord(filePath)
+			words, err := readWord(filePath)
+			if err != nil {
+				fmt.Println("Error:", err)
+				return
+			}
+			wordsArray = words
 			deckName = args[0]
 
 		} else {
 			if len(args) < 2 {
 				fmt.Println("Error: Please specify both word and deckname.")
+				fields, _ := generateWord(args[0])
+				printLLMresult(fields)
 				return
 			}
 			wordsArray = []string{args[0]}
 			deckName = args[1]
 		}
 
-		if !checkAnkiRunning() {
+		if err := checkAnkiRunning(); err != nil {
+			fmt.Println("Error:", err)
 			return
 		}
-		if !isDeck(getDeckName(), deckName) {
+		decks, err := getDeckName()
+		if err != nil {
+			fmt.Println("Error:", err)
 			return
 		}
-		if !IsModel() {
-			addNewModel()
+		if err := isDeck(decks, deckName); err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		modelExists, err := IsModel()
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		if !modelExists {
+			if err := addNewModel(); err != nil {
+				fmt.Println("Error:", err)
+				return
+			}
 		}
 
 		var failedWords []string
@@ -85,7 +107,9 @@ var addCmd = &cobra.Command{
 		if len(failedWords) != 0 {
 			dir := filepath.Dir(filePath)
 			outPath := filepath.Join(dir, "fail.txt")
-			fail(failedWords, outPath)
+			if err := fail(failedWords, outPath); err != nil {
+				fmt.Println("Error:", err)
+			}
 		}
 	},
 }

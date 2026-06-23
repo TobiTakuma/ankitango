@@ -10,7 +10,7 @@ import (
 )
 
 // get all notes from deck
-func findNotes(deckName string) []int {
+func findNotes(deckName string) ([]int, error) {
 	type Params struct {
 		Query string `json:"query"`
 	}
@@ -32,7 +32,7 @@ func findNotes(deckName string) []int {
 
 	body, err := ankiInvoke(req)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	type AnkiResponse struct {
@@ -42,10 +42,10 @@ func findNotes(deckName string) []int {
 
 	var ankiResp AnkiResponse
 	json.Unmarshal(body, &ankiResp)
-	return ankiResp.Result
+	return ankiResp.Result, nil
 }
 
-func noteInfo(notesId int) string {
+func noteInfo(notesId int) (string, error) {
 	type Params struct {
 		Notes []int `json:"notes"`
 	}
@@ -67,7 +67,7 @@ func noteInfo(notesId int) string {
 	}
 	body, err := ankiInvoke(req)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
 	type FieldInfo struct {
@@ -89,7 +89,7 @@ func noteInfo(notesId int) string {
 	json.Unmarshal(body, &ankiResp)
 
 	if len(ankiResp.Result) == 0 {
-		return ""
+		return "", nil
 	}
 
 	front := ankiResp.Result[0].Fields["Front"].Value
@@ -99,7 +99,7 @@ func noteInfo(notesId int) string {
 	fmt.Println("Front Sentence:", ankiResp.Result[0].Fields["Back"].Value)
 	fmt.Println("Back Sentence :", ankiResp.Result[0].Fields["Back_Sentence"].Value)
 
-	return front
+	return front, nil
 }
 
 func updateNoteFields(noteId int, fields map[string]string) error {
@@ -155,7 +155,7 @@ func ankiInvoke(req any) ([]byte, error) {
 	url := "http://127.0.0.1:8765"
 	jsonData, err := json.Marshal(req)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 
 	var resp *http.Response
@@ -223,20 +223,17 @@ func isNote(deckName string, word string) (bool, error) {
 	return false, nil
 }
 
-func isDeck(deckList []string, deckName string) bool {
+func isDeck(deckList []string, deckName string) error {
 	for i := 0; i < len(deckList); i++ {
 		if deckList[i] == deckName {
-			return true
+			return nil
 		}
 	}
-	fmt.Println("Error:  deck was not found: " + deckName)
-	fmt.Println(`If the deck name contains spaces, enclose it in double quotes.`)
-	fmt.Println(`Example: ankitango add “hello world” “deckName”`)
-	return false
+	return fmt.Errorf("deck was not found: %s\nIf the deck name contains spaces, enclose it in double quotes.\nExample: ankitango add \"hello world\" \"deckName\"", deckName)
 }
 
 // check if the model exists
-func IsModel() bool {
+func IsModel() (bool, error) {
 	// 1 make request structure
 	type AnkiRequest struct {
 		Action  string `json:"action"`
@@ -250,7 +247,7 @@ func IsModel() bool {
 
 	body, err := ankiInvoke(req)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
 	type AnkiResponse struct {
@@ -263,16 +260,16 @@ func IsModel() bool {
 
 	for _, models := range ankiResp.Result {
 		if string(models) == modelName_AddAnkiCLI {
-			return true
+			return true, nil
 		}
 	}
 	fmt.Println("The specified model does not exist.\nCreating a new one...")
-	return false
+	return false, nil
 }
 
 // add new model
 // before run this function, user needs check "AddAnkiCLI" is not available
-func addNewModel() {
+func addNewModel() error {
 	// 1 make json structure
 	type CardTemplates struct {
 		Name  string `json:"Name"`
@@ -318,7 +315,7 @@ func addNewModel() {
 
 	body, err := ankiInvoke(req)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	type AnkiResponse struct {
@@ -330,9 +327,10 @@ func addNewModel() {
 	json.Unmarshal(body, &ankiResp) // JSONをGoのデータに流し込む
 
 	fmt.Println("A new model named “ankitango” has been created.")
+	return nil
 }
 
-func getDeckName() []string {
+func getDeckName() ([]string, error) {
 	// 1 make request structure
 	type AnkiRequest struct {
 		Action  string `json:"action"`
@@ -346,7 +344,7 @@ func getDeckName() []string {
 
 	body, err := ankiInvoke(req)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	type AnkiResponse struct {
@@ -357,11 +355,11 @@ func getDeckName() []string {
 	var ankiResp AnkiResponse       // 空の入れ物を用意
 	json.Unmarshal(body, &ankiResp) // JSONをGoのデータに流し込む
 
-	return ankiResp.Result
+	return ankiResp.Result, nil
 }
 
 // check if
-func checkAnkiRunning() bool {
+func checkAnkiRunning() error {
 	url := "http://127.0.0.1:8765"
 	// 1 make request structure
 	type AnkiRequest struct {
@@ -377,7 +375,7 @@ func checkAnkiRunning() bool {
 	// 3 convert to JSON. Marshal(変換)
 	jsonData, err := json.Marshal(req)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to build request: %w", err)
 	}
 
 	// 4 send request to localhost
@@ -388,12 +386,11 @@ func checkAnkiRunning() bool {
 	)
 	// if Anki isn't run it return error
 	if err != nil {
-		fmt.Println("Error: Anki is not ruuning")
-		return false
+		return fmt.Errorf("Anki is not running")
 	}
 
 	// if get response, Anki is already running
 	defer resp.Body.Close()
 	// fmt.Println("Anki is running")
-	return true
+	return nil
 }
