@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -59,23 +60,29 @@ var tuiCmd = &cobra.Command{
 // 画面に出ているものは、必ずこの中のどれかに対応している。
 // 画面を増やしたくなったら、まずここにフィールドを足す（例: step int で今どの画面か）。
 type model struct {
-	input   textinput.Model // 入力欄。これ自体が小さな bubbletea 部品（bubbles）
-	word    string          // Enter で確定した単語。確定前は "" のまま
-	loading bool
-	result  map[string]string
-	deck    string
-	state   int
+	input  textinput.Model // 入力欄。これ自体が小さな bubbletea 部品（bubbles）
+	word   string          // Enter で確定した単語。確定前は "" のまま
+	result map[string]string
+	deck   string
+	state  int
 }
+
+var chooseDeck = 0
+var typeWord = 1
+var nowGenerate = 2
+var addWord = 3
 
 // initialModel = 起動時の状態を1個作って返す。ここが「画面の初期値」。
 func initialModel() model {
 	ti := textinput.New()
+	cfg := loadConfig()
 	ti.Placeholder = "type a deck..." // 何も打っていない時に薄く出る案内文
 	ti.Focus()                        // カーソルをこの入力欄に置く（複数欄ある時は1つだけ Focus する）
-
+	ti.SetValue(cfg.TuiDeckName)
 	return model{
 		input: ti,
-		state: 0,
+		state: chooseDeck,
+		deck:  cfg.TuiDeckName,
 	}
 }
 
@@ -103,28 +110,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			switch m.state {
-			case 0:
+			case chooseDeck:
 				m.deck = m.input.Value()
-				m.loading = true
-				saveDeckCmd(m.word)
+				m.state = typeWord // change state
+				m.input.Placeholder = "type a word..."
 
-			case 1:
+				m.input.SetValue("")
+				return m, saveDeckCmd(m.deck)
+
+			case typeWord:
+				if m.result != nil {
+					m.state = addWord
+					return m, nil
+				}
 				m.word = m.input.Value()
-				m.loading = true
-				// fields = generateWord(m.word)
-				// TODO: ここから先へ画面を進める（デッキ選択 → generateWord → addCard）。
-				//       例: m に step を持たせ、ここで m.step = 1 にして View を分岐させる。
+				m.result = nil
+				m.state = nowGenerate
 				return m, generateWordCmd(m.word)
 				// 入力欄に今入っている文字列を取り出して、確定値として state に保存する。
 				// → 状態が変わったので、この後 bubbletea が View を呼び直し、画面に反映される。
+			case addWord:
+				m.state = chooseDeck
+				return m, nil
+			}
+
+		// regenerate text
+		case "r":
+			switch m.state {
+			case typeWord:
+				m.word = m.input.Value()
+				m.result = nil
+				m.state = nowGenerate
+				return m, generateWordCmd(m.word)
 			}
 
 		}
 	case generateResultMsg:
-		m.loading = false
 		m.result = msg.fields
+		m.state = typeWord
 		return m, nil
-
 	}
 
 	// 上の case に当てはまらなかった入力（普通の文字・矢印キー・Backspace など）は、
@@ -138,7 +162,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func saveDeckCmd(deck string) tea.Cmd {
 	return func() tea.Msg {
 		cfg := loadConfig()
-		cfg.tuiDeckName = deck
+		cfg.TuiDeckName = deck
 		saveConfig(cfg)
 
 		return nil
@@ -157,29 +181,43 @@ func generateWordCmd(word string) tea.Cmd {
 // 画面を切り替えたい時は、ここで m の中身を見て if で出し分ける。
 func (m model) View() string {
 	s := "Add a word to Anki\n\n"
+	switch m.state {
+	case chooseDeck:
+		s += "[Type a deck name] "
+	case typeWord:
+		s += "[Type a word] "
+	}
+
 	s += m.input.View() + "\n\n" // 入力欄も「自分を文字列にする View」を持っている
 	switch m.state {
-	case 0:
-
-	case 1:
+	case chooseDeck:
+		s += "(enter: confirm / esc: quit)\n" // 操作のヒント（フッター）
+	case typeWord:
+		s += "Deck: " + m.deck + "\n"
 		if m.word != "" {
 			// 確定済みなら、確定した単語も表示する
-			s += "word: " + m.word + "\n"
+			s += "Word: " + m.word + "\n"
 
 			if m.result["Front"] == m.word {
 				s += fmt.Sprintf("\nFront         : %s\n", m.result["Front"])
 				s += fmt.Sprintf("Back          : %s\n", m.result["Back"])
 				s += fmt.Sprintf("Front Sentence: %s\n", m.result["Front_Sentence"])
 				s += fmt.Sprintf("Back Sentence : %s\n\n", m.result["Back_Sentence"])
+
 			} else {
-				s += "\n\n\n\n\n\n"
+				s += "\nGenerating...\n\n\n\n\n"
 			}
 
 		} else {
 			s += "\n\n\n\n\n\n\n"
 		}
+		s += "(enter: confirm /r: regenerate/ esc: quit)\n" // 操作のヒント（フッター）
+	case nowGenerate:
+		s += "\nGenerating...\n\n\n\n\n"
+	case addWord:
+		s += "(enter: add word to deck / esc: quit)\n" // 操作のヒント（フッター）
 	}
 
-	s += "(enter: confirm / esc: quit)\n" // 操作のヒント（フッター）
+	s += strconv.Itoa(m.state)
 	return s
 }

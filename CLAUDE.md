@@ -12,15 +12,15 @@
 | 4. CLIコマンド化 | cobra導入、`ankitango add <word>` などのコマンド実装 | ✅ 完了 |
 | 5. 配布 | GoReleaserでリリース、install.sh / install.ps1 作成 | ✅ 完了 |
 | 6. ファイル一括取り込み | `add -f <file>` で `.txt`/`.csv` から複数単語を追加 | ✅ 完了 |
-| 7. TUI | bubbletea導入、画面フロー実装（AIに任せる） | 未着手 |
+| 7. TUI | bubbletea導入、画面フロー実装（AIに任せる） | 🚧 実装中 |
 | 8. 追加機能（継続） | 自動判別・複数訳対応・発音/音声フィールド・他LLM対応など | 🚧 検討/実装中 |
 
 ## 後でやること
 
-- **【接続切れ対策】残タスク**（2026-06-04時点。コア機能は完成済み）
-  - `generateWord`（OpenAI側）の `panic` をリトライ＋エラー返しに（Anki側と別対応。429レート制限はこちらで起きうる）。生成失敗の単語も `failedWords` に記録するか合わせて検討
-  - `getDeckName` / `IsModel` / `addNewModel` の `panic` をエラー表示に（ループ外で1回だけ呼ばれるので優先度低）
-- `panic(err)` をエラーメッセージ表示に変更（接続切れ対策で `ankiInvoke`＋`addCard`＋`isNote` は対応済み。`getDeckName` / `IsModel` / `addNewModel` / `generateWord` はまだ `panic` のまま）
+- **TUI**（2026-06-23時点。state 0=デッキ入力 / state 1=単語入力 まで実装済み）
+  - デッキ検証（`isDeck`）を非同期 Cmd で組み込む（`deckValidatedMsg` を作って Update に返す方式）
+  - 単語生成後の addCard 呼び出しと結果表示
+  - 生成結果の確認→確定フロー（y/n など）
 - 発音記号・音声データフィールドの追加（`Pronunciation`, `Audio` フィールドは存在するがAIが生成していない。生成内容に含める）
 - 複数の意味・訳語への対応（1回の実行で複数カードを生成するか検討）
 - 拡張子での自動判別（`-f` なしで `add words.txt MyDeck` と打ったら、args[0] が `.txt`/`.csv` なら自動でファイル扱いにする）：現状は `-f` フラグ必須。優先度低
@@ -28,7 +28,6 @@
   - ローカルモデル（Ollama/LM Studio等）：プリセットに1行足すだけで可能だが「あとでやる」。`generateWord` の「APIキー空ならエラー」チェックに引っかかるので、ダミーキー（`config apikey local ...`）かチェック緩和が必要
   - Claude：`providers` マップに `claude` 行を足すだけで対応可（互換エンドポイント）
   - 必要なら「プロバイダごとにキー保存」（切り替えのたびにキー再入力が面倒になったら）
-  - `generateWord` 末尾の DEBUG 出力（`fmt.Println("DEBUG ...")`）を消したか確認
 
 ---
 
@@ -39,10 +38,17 @@
 main.go              ← エントリーポイント。cmd.Execute() を呼ぶだけ
 cmd/
   root.go            ← ルートコマンド（ankitango）の定義。init() で各コマンド・フラグを登録
-  add.go             ← add / list コマンド。AnkiConnect・OpenAI関連の関数群もここ
-                        （addCmd, listCmd, generateWord, addCard, isNote, isDeck,
-                         readWord, IsModel, addNewModel, getDeckName, checkAnkiRunning）
+  add.go             ← add コマンド。addCard / isNote / ErrConnection もここ
+  list.go            ← list コマンド。printList もここ
+  regenerate.go      ← regen コマンド
+  anki.go            ← AnkiConnect 関連の関数群
+                        （ankiInvoke, checkAnkiRunning, getDeckName, isDeck,
+                         IsModel, addNewModel, findNotes, noteInfo, updateNoteFields）
+  llm.go             ← OpenAI/LLM 関連（generateWord, printLLMresult, promptTemplate）
+  file.go            ← ファイル読み書き（readWord, fail）
   config.go          ← config コマンド（apikey / lang / show）と loadConfig / saveConfig
+                        Config struct に TuiDeckName フィールドあり（json:"tui_deck"）
+  tui.go             ← tui コマンド。bubbletea による TUI（state 0=デッキ入力 / state 1=単語入力）
 sample/              ← テスト用 .txt / .csv（.gitignore 済み、コミットしない）
 install.sh           ← Mac/Linux 用インストールスクリプト
 install.ps1          ← Windows 用インストールスクリプト
@@ -244,6 +250,27 @@ ankitango config show                     # 現在の設定を表示
 - 可読性改善：プロンプト文字列を `"..."+ "..."` 連結 → raw string（バッククォート）→ さらに**パッケージ直下の `const promptTemplate`** に切り出し。関数本体は `fmt.Sprintf(promptTemplate, ...)` の1行に。raw string は行頭インデントが本文に混ざるので**左寄せで書く**注意をコメントに明記
 - 別言語検証：Ankiに触れず Gemini を直接叩いて English→Spanish をテスト（生成のみ）。few-shot が日本語ベタ書きでも**出力は全部スペイン語**になり日本語に引っ張られない／`hello→hola`（単義収束）/`spring`・`bank`（分割）も正常/`patient` の重複だけ上記で修正済みを確認
 
+### 2026-06-23（TUI実装：ステート管理・デッキ保存・入力欄リセット）
+**ユーザー:**
+- TUI の state 切り替えを実装。state 0 でデッキ名を入力→Enter で state 1 に移行し、単語入力画面へ
+- `case 0` の enter に `m.state = 1` / `m.input.SetValue("")`（入力欄リセット）/ `saveDeckCmd(m.deck)` を組み込み
+- `Config` の `tuiDeckName` を `TuiDeckName` に変更（エクスポート）し json タグも `"tui_deck"` に。これにより `saveConfig` / `loadConfig` で正しく保存・読み込みされる
+- `initialModel()` で `loadConfig()` → `ti.SetValue(cfg.TuiDeckName)` / `deck: cfg.TuiDeckName` として、前回使ったデッキ名を起動時に入力欄へ反映
+- `m.result["Front"]` を参照するよう修正（パッケージレベルの `var fields` を参照していたバグを解消）
+- `fmt.Printf` の末尾に `\n` を追加（ないと zsh が `%` を表示する）
+- バグ修正：`case 1` の enter に `m.input.SetValue(m.deck)` があり、単語確定後に入力欄がデッキ名になってしまっていた→削除
+
+**Claude:**
+- `m.result` でなくパッケージレベル変数を参照していた原因を指摘
+- View のスペース統一方法として①空行プレースホルダー②lipgloss `Height` 固定枠の2案を説明
+- bubbletea の初期変数は `model` struct フィールドに書く、変更は `Update` 内だけ、の原則を説明
+- `strconv.Itoa` (int→string) の使い方を説明
+- state 切り替えは `tea.Cmd` 不要で `m.state = 1` の1行でできることを説明
+- `saveDeckCmd` は設定保存だけなので state 切り替えと並列に `return m, saveDeckCmd(m.deck)` でよいと説明
+- デッキ名の次回プリフィル：`initialModel()` に `ti.SetValue` を書く場所と、`TuiDeckName` が未エクスポートで JSON に保存されていなかったことを指摘
+- JSON エクスポートルール（大文字=パッケージ外からアクセス可）を説明
+- `m.input.SetValue(m.deck)` が case 1 enter にあることが「単語確定後にデッキ名が入力欄に出る」バグの原因と特定
+
 ### 2026-06-22（エラー処理をprint/panicからerror返却に統一・Claude実装）
 **ユーザーの指示により（Claude実装）:**
 - 「全てのエラー処理をプリントではなく `Errorf` で返すように」と指示。対象範囲は**ヘルパー関数のみ**（cobra の `Run` は受け取って表示する側に残す）、**panic も含める**を選択
@@ -286,10 +313,72 @@ ankitango config show                     # 現在の設定を表示
 - Goの **raw string リテラル（バッククォート）**は `\"`・`\n` が不要で長文プロンプトが読みやすいが、**行頭の空白がそのまま本文に入る**のが落とし穴。インデントしたいなら左寄せにするか、長文は**パッケージ直下の `const` に切り出す**（トップレベルなら左寄せが自然＝本文が汚れない）と関数本体もスッキリする
 - few-shot 例の言語が固定（日本語ベタ書き）でも、`toLang` を変えれば**出力はちゃんとその言語になる**（日本語に引っ張られない、と実機確認）。生成だけ試したいときは Ankiを経由せず互換エンドポイントを直接 curl で叩けば、カードを汚さずクレジット最小で検証できる
 - `fmt.Sprintf` の `%s` を増減したら引数の数・順番を必ず合わせる。**`go vet` が個数不一致を検出**してくれるので改修後に走らせると安全
+- bubbletea の初期変数は `model` struct のフィールドに書く。変更は `Update` の中だけ、参照は `View` の中だけ、が鉄則。起動時の初期値は `initialModel()` でフィールドに代入する
+- `fmt.Printf` は末尾に `\n` がないとプロンプトに戻ったとき zsh が行末に `%` を表示する（改行なしで終わった印）。`fmt.Println` は自動で `\n` を付けるので出ない
+- Go の大文字始まりフィールド＝エクスポート（パッケージ外からアクセス可）、小文字＝パッケージ内のみ。`encoding/json` は外部パッケージなので**小文字フィールドを無視**する→ JSON に保存・読み込みされない。struct フィールドを JSON と連携させるには大文字にする必要がある
+- int → string の変換は `strconv.Itoa(n)`（`import "strconv"` が必要）。`fmt.Sprintf("%d", n)` でも同じだが、変換目的には `Itoa` が慣用的
+- bubbletea で state を切り替えるだけなら `tea.Cmd` 不要。`Update` の中で `m.state = 1` の1行で即座に切り替わり、次の `View` 呼び出しで反映される
+- bubbletea の `tea.Cmd` は「時間がかかる処理（I/O・API）」を非同期で走らせるもの。結果は `tea.Msg` として `Update` に返す。state 変更など「即座に決まること」は Cmd を使わず Update 内で直接やる
+- `m.input.SetValue("")` で textinput の中身を空にリセットできる。state が切り替わった後も同じ `input` を使い回すので、前の state の入力が残らないようにするために使う
 
 ---
 
 ## 質問ログ
+
+### 2026-06-23
+**質問：** TUIのViewでfields["Front"]みたいな書き方だとうまくいかない？
+
+**回答：**
+- `fields["Front"]` はパッケージレベルの `var fields map[string]string`（空のまま）を参照していたのが原因。`generateWord` の結果は `m.result` に入っているので `m.result["Front"]` にする必要がある
+
+### 2026-06-23
+**質問：** Viewで生成された結果がある時とない時で空白の幅を同じにしたい
+
+**回答：**
+- ①空行プレースホルダー：結果がない時も同じ行数の `\n` を出す。シンプルだが行数を手で数える必要がある
+- ②lipgloss `Height` で固定枠（推奨）：`lipgloss.NewStyle().Height(n).Render(content)` で中身が空でもn行分のスペースを確保できる。行数を手で管理しなくてよい
+
+### 2026-06-23
+**質問：** bubbleteaで最初に変数などを決める時はどこに書けばいいのか。最初はfalseになっているが特定の動作でtrueになるものを作りたい
+
+**回答：**
+- `model` struct のフィールドに書く。bool のゼロ値が `false` なので宣言するだけでよい（`initialModel()` で明示的に `false` を書いても同じ）。`true` にするのは `Update` の中、参照は `View` の中
+
+### 2026-06-23
+**質問：** int の物を string に変更する方法は？
+
+**回答：**
+- `strconv.Itoa(n)`（`import "strconv"` が必要）。`fmt.Sprintf("%d", n)` でも同じだが整数→文字列には `Itoa` が慣用的
+
+### 2026-06-23
+**質問：** TUIでステートの切り替えだけできるようにしたい
+
+**回答：**
+- `tea.Cmd` や Msg は不要。`case 0` の enter 内で `m.state = 1` / `m.input.SetValue("")`（入力リセット）/ `return m, nil` の3行で完結する
+
+### 2026-06-23
+**質問：** saveDeckCmd を組み込むなら？
+
+**回答：**
+- state 切り替えとは独立して動かせる。`m.state = 1; m.input.SetValue(""); return m, saveDeckCmd(m.deck)` の形で state 変更は即座に、設定保存は非同期で裏で走る。`saveDeckCmd` の戻り値は nil なので Update に影響しない
+
+### 2026-06-23
+**質問：** deckを保存して次に開いた時にデフォルトで前に使ったdeckを表示させるには？
+
+**回答：**
+- `Config` に `TuiDeckName string` フィールドを追加（エクスポート＝大文字必須）し `saveDeckCmd` で保存。`initialModel()` で `loadConfig()` → `ti.SetValue(cfg.TuiDeckName)` で起動時に入力欄に反映する
+
+### 2026-06-23
+**質問：** なんで大文字じゃないといけないの？
+
+**回答：**
+- Go の大文字始まり＝エクスポート（他パッケージからアクセス可）、小文字＝パッケージ内のみ。`encoding/json` は別パッケージなので小文字フィールドが見えず、保存も読み込みも無視される
+
+### 2026-06-23
+**質問：** fmt.Printf で `%` が末尾に残ってしまうのはなぜ？
+
+**回答：**
+- Go のバグではなく zsh の仕様。`Printf` は `\n` を自動で付けないため、改行なしで終わった行の末尾に zsh が `%`（反転表示）を出す。`fmt.Printf("...\n", ...)` と末尾に `\n` を足せば消える。`Println` は自動で `\n` を付けるので出ない
 
 ### 2026-06-12
 **質問：** 多義語の意味を複数返したい。`patient` で意味は「患者」なのに例文が「忍耐強い」になるのはなぜ？

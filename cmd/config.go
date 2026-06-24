@@ -14,7 +14,7 @@ type Config struct {
 	ToLang      string `json:"tolang"`
 	BaseURL     string `json:"base_url"`
 	LLMModel    string `json:"model"`
-	tuiDeckName string `json:"tuiDeck"`
+	TuiDeckName string `json:"tuiDeck"`
 }
 
 type Provider struct {

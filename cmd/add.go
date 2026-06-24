@@ -72,7 +72,11 @@ var addCmd = &cobra.Command{
 
 		var failedWords []string
 		for i := 0; i < len(wordsArray); i++ {
-			fmt.Println("--------------------")
+			if len(wordsArray) > 1 {
+				fmt.Println("--------------------")
+
+			}
+			fmt.Println("Generating...")
 			word := wordsArray[i]
 
 			exists, err := isNote(deckName, word)
@@ -102,6 +106,9 @@ var addCmd = &cobra.Command{
 
 				continue
 			}
+
+			fmt.Println("Success!")
+			fmt.Printf("[%s] has been added to [%s]\n", word, deckName)
 		}
 
 		if len(failedWords) != 0 {
@@ -172,6 +179,5 @@ func addCard(fields map[string]string, deckName string) error {
 	if ankiResp.Error != nil {
 		return fmt.Errorf("Error: %s", *ankiResp.Error)
 	}
-	fmt.Println("Success!")
 	return nil
 }
